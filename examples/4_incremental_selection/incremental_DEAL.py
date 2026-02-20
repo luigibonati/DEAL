@@ -25,6 +25,8 @@ if 'original_frame' not in traj_input[0].info:
     for i,atoms in enumerate(traj_input):
         atoms.info['original_frame'] = i
 
+write(f"{deal_folder}/input_iter0.xyz", traj_input)
+
 # ------------------------
 # incremental DEAL loop
 # ------------------------
@@ -32,7 +34,7 @@ for iter, deal_threshold in enumerate(thresholds):
 
     print(f"\nITERATION {iter} (threshold: {deal_threshold})")
 
-    input_file = traj_input_file if iter == 0 else f"{deal_folder}/input_iter{iter}.xyz"
+    input_file = f"{deal_folder}/input_iter{iter}.xyz"
     output_prefix = f"{deal_folder}/deal_iter{iter}"
 
     data_cfg = DataConfig(files=input_file)
