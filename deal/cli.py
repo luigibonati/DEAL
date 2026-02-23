@@ -4,26 +4,24 @@ import yaml
 
 from .core import DataConfig, DEALConfig, FlareConfig, DEAL
 
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="DEAL selector: read a YAML config or specify a trajectory and (optionally) a threshold."
     )
 
     parser.add_argument(
-        "-c", "--config",
-        dest="config",
-        help="YAML configuration file."
+        "-c", "--config", dest="config", help="YAML configuration file."
     )
     parser.add_argument(
-        "-f", "--file",
-        dest="filename",
-        help="Input trajectory file (e.g. traj.xyz)."
+        "-f", "--file", dest="filename", help="Input trajectory file (e.g. traj.xyz)."
     )
     parser.add_argument(
-        "-t", "--threshold",
+        "-t",
+        "--threshold",
         type=float,
         dest="threshold",
-        help="GP uncertainty threshold that triggers selection."
+        help="GP uncertainty threshold that triggers selection.",
     )
 
     return parser.parse_args()
@@ -63,7 +61,9 @@ def main() -> None:
     try:
         cfg_dict["data"]["files"][0]
     except KeyError:
-        print('[ERROR] No input trajectory specified. Please provide a trajectory file (-f/--file) or a YAML config file (-c/--config).')
+        print(
+            "[ERROR] No input trajectory specified. Please provide a trajectory file (-f/--file) or a YAML config file (-c/--config)."
+        )
         sys.exit(1)
 
     # Build configs and run
@@ -74,8 +74,10 @@ def main() -> None:
     # Handle multiple thresholds
     if isinstance(deal_cfg.threshold, list):
         prefix = deal_cfg.output_prefix
-        for threshold, update_thresh in zip(deal_cfg.threshold, deal_cfg.update_threshold):
-            print('[DEAL] Running with threshold:', threshold)
+        for threshold, update_thresh in zip(
+            deal_cfg.threshold, deal_cfg.update_threshold
+        ):
+            print("[DEAL] Running with threshold:", threshold)
             deal_cfg.threshold = threshold
             deal_cfg.update_threshold = update_thresh
             deal_cfg.output_prefix = f"{prefix}_{str(threshold)}"

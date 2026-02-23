@@ -3,35 +3,45 @@ from ase.data import covalent_radii as CR
 from ase.data import chemical_symbols as CS
 from ase.io import read
 from ase import Atoms
-import pandas as pd 
+import pandas as pd
 
 import os
 
-__all__ = ["average_along_cv","compute_histogram","plumed_to_pandas","paletteFessa","create_chemiscope_input"]
+__all__ = [
+    "average_along_cv",
+    "compute_histogram",
+    "plumed_to_pandas",
+    "paletteFessa",
+    "create_chemiscope_input",
+]
+
 
 def average_along_cv(value, cv, bins):
-    h1,x = np.histogram(cv,bins=bins,weights=value)
-    h2,_ = np.histogram(cv,bins=bins)
+    h1, x = np.histogram(cv, bins=bins, weights=value)
+    h2, _ = np.histogram(cv, bins=bins)
 
-    mean = h1/h2
-    x = (x[:-1]+x[1:])/2
+    mean = h1 / h2
+    x = (x[:-1] + x[1:]) / 2
 
-    return x,mean
+    return x, mean
 
-def compute_histogram(value, bins, threshold = None):
-    h1,x = np.histogram(value,bins=bins)
-    x = (x[:-1]+x[1:])/2
+
+def compute_histogram(value, bins, threshold=None):
+    h1, x = np.histogram(value, bins=bins)
+    x = (x[:-1] + x[1:]) / 2
 
     if threshold is not None:
-        h2,_ = np.histogram(value[(value>threshold)],bins=bins)
-        return x,(h1,h2)
+        h2, _ = np.histogram(value[(value > threshold)], bins=bins)
+        return x, (h1, h2)
     else:
-        return x,h1
+        return x, h1
+
 
 ################################################################
-## Functions to load COLVAR files 
+## Functions to load COLVAR files
 ## source: https://mlcolvar.readthedocs.io/en/stable/_modules/mlcolvar/utils/io.html
 ################################################################
+
 
 def is_plumed_file(filename):
     """
@@ -83,6 +93,7 @@ def plumed_to_pandas(filename="./COLVAR"):
     )
 
     return df
+
 
 def load_dataframe(
     file_names, start=0, stop=None, stride=1, delete_download=True, **kwargs
@@ -161,7 +172,8 @@ def load_dataframe(
         df.reset_index(drop=True, inplace=True)
 
     return df
-    
+
+
 ##########################################################################
 ## FESSA COLOR PALETTE
 ##########################################################################
@@ -191,9 +203,9 @@ for i in range(len(paletteFessa)):
 
 ### To set it as default
 # import fessa
-#plt.set_cmap('fessa')
+# plt.set_cmap('fessa')
 ### or the reversed one
-#plt.set_cmap('fessa_r')
+# plt.set_cmap('fessa_r')
 ### For contour plots
 # plt.contourf(X, Y, Z, cmap='fessa')
 ### For standard plots
@@ -203,7 +215,10 @@ for i in range(len(paletteFessa)):
 ## CHEMISCOPE
 ##########################################################################
 
-def create_chemiscope_input(trajectory, filename = None, colvar = None, cvs=['*'], verbose=False):
+
+def create_chemiscope_input(
+    trajectory, filename=None, colvar=None, cvs=["*"], verbose=False
+):
     """
     Create a chemiscope input file from a trajectory and optional collective variables (colvar) file.
 
@@ -226,24 +241,26 @@ def create_chemiscope_input(trajectory, filename = None, colvar = None, cvs=['*'
     """
 
     if verbose:
-        print('[INFO] Creating Chemiscope input file...')
-    try: 
+        print("[INFO] Creating Chemiscope input file...")
+    try:
         import chemiscope
     except ImportError:
-        raise ImportError("Chemiscope is not installed. Please install it with pip install chemiscope")
-        
+        raise ImportError(
+            "Chemiscope is not installed. Please install it with pip install chemiscope"
+        )
+
     # check if trajectory is a list of atoms or a filename
-    if isinstance(trajectory,list) & isinstance(trajectory[0],Atoms):
+    if isinstance(trajectory, list) & isinstance(trajectory[0], Atoms):
         traj = trajectory
-    elif isinstance(trajectory,str):
+    elif isinstance(trajectory, str):
         if verbose:
-            print('[INFO] Reading file:',trajectory)
-        traj = read(trajectory,index=':')
+            print("[INFO] Reading file:", trajectory)
+        traj = read(trajectory, index=":")
     atoms = traj[0]
 
     # load colvar file into traj if requested
     if colvar is not None:
-        if isinstance(colvar,pd.DataFrame):
+        if isinstance(colvar, pd.DataFrame):
             pass
         else:
             try:
@@ -251,49 +268,69 @@ def create_chemiscope_input(trajectory, filename = None, colvar = None, cvs=['*'
 
                 # if time in colvar use colvar.time and atoms.info['frame'] to ensure consistency
                 dt, consistent = None, True
-                atoms_old=traj[0]
-                if 'time' in colvar.columns and 'frame' in atoms_old.info: 
-                 # check if time is consistent between colvar and traj
+                atoms_old = traj[0]
+                if "time" in colvar.columns and "frame" in atoms_old.info:
+                    # check if time is consistent between colvar and traj
                     if verbose:
-                        print(f"[INFO] Checking time consistency between COLVAR and trajectory...")
+                        print(
+                            f"[INFO] Checking time consistency between COLVAR and trajectory..."
+                        )
                     for i, atoms in enumerate(traj[1:]):
                         if dt is None:
-                            frames = atoms.info['frame'] - atoms_old.info['frame']
-                            time_interval = colvar['time'].loc[atoms.info['frame']] - colvar['time'].loc[atoms_old.info['frame']]
-                            dt= time_interval / frames
-                        else: # check consistency
-                            frames = atoms.info['frame'] - atoms_old.info['frame']
-                            time_interval = colvar['time'].loc[atoms.info['frame']] - colvar['time'].loc[atoms_old.info['frame']]
-                            dt_new= time_interval / frames
+                            frames = atoms.info["frame"] - atoms_old.info["frame"]
+                            time_interval = (
+                                colvar["time"].loc[atoms.info["frame"]]
+                                - colvar["time"].loc[atoms_old.info["frame"]]
+                            )
+                            dt = time_interval / frames
+                        else:  # check consistency
+                            frames = atoms.info["frame"] - atoms_old.info["frame"]
+                            time_interval = (
+                                colvar["time"].loc[atoms.info["frame"]]
+                                - colvar["time"].loc[atoms_old.info["frame"]]
+                            )
+                            dt_new = time_interval / frames
                             if np.abs(dt - dt_new) > 1e-8:
                                 consistent = False
-                        atoms_old= atoms
+                        atoms_old = atoms
                     if consistent:
                         if verbose:
-                            print(f"[INFO] Time consistency between COLVAR and trajectory verified.")
-                        for i,atoms in enumerate(traj):
+                            print(
+                                f"[INFO] Time consistency between COLVAR and trajectory verified."
+                            )
+                        for i, atoms in enumerate(traj):
                             for col in colvar.columns:
-                                atoms.info['colvar.'+col] = colvar[col].loc[atoms.info['frame']]
+                                atoms.info["colvar." + col] = colvar[col].loc[
+                                    atoms.info["frame"]
+                                ]
                     else:
-                        print(f"[WARNING]: time inconsistency between COLVAR and trajectory detected. Not saving COLVAR information.")
-                        for i,atoms in enumerate(traj):
+                        print(
+                            f"[WARNING]: time inconsistency between COLVAR and trajectory detected. Not saving COLVAR information."
+                        )
+                        for i, atoms in enumerate(traj):
                             for col in colvar.columns:
-                                atoms.info['colvar.'+col] = colvar[col].iloc[i]
+                                atoms.info["colvar." + col] = colvar[col].iloc[i]
                 elif len(colvar) == len(traj):
-                    print("[WARNING]: Consistency between traj and COLVAR cannot be assessed. Saving COLVAR assuming that the order of frames in COLVAR and trajectory are the same.")
-                    for i,atoms in enumerate(traj):
+                    print(
+                        "[WARNING]: Consistency between traj and COLVAR cannot be assessed. Saving COLVAR assuming that the order of frames in COLVAR and trajectory are the same."
+                    )
+                    for i, atoms in enumerate(traj):
                         for col in colvar.columns:
-                            atoms.info['colvar.'+col] = colvar[col].iloc[i]
+                            atoms.info["colvar." + col] = colvar[col].iloc[i]
                 else:
-                    print("[WARNING]: Consistency between traj and COLVAR cannot be assessed and lengths do not match. Not saving COLVAR information.")
+                    print(
+                        "[WARNING]: Consistency between traj and COLVAR cannot be assessed and lengths do not match. Not saving COLVAR information."
+                    )
             except Exception as e:
-                print (f"[WARNING]: colvar file: {colvar} not read, it should be a string filename or a pandas dataframe. Exception: {e}.")
-        
+                print(
+                    f"[WARNING]: colvar file: {colvar} not read, it should be a string filename or a pandas dataframe. Exception: {e}."
+                )
+
     # Get CV names
-    prop_names, prop_names_float = [],[]
+    prop_names, prop_names_float = [], []
     for c in cvs:
-        if '*' in c:
-            prop_names.extend([p for p in atoms.info.keys() if c.replace('*','') in p ])
+        if "*" in c:
+            prop_names.extend([p for p in atoms.info.keys() if c.replace("*", "") in p])
         else:
             prop_names.append(c)
 
@@ -305,11 +342,11 @@ def create_chemiscope_input(trajectory, filename = None, colvar = None, cvs=['*'
             float(atoms.info[p])
             prop_names_float.append(p)
         except TypeError:
-            #if p != "target_atoms":
+            # if p != "target_atoms":
             print(f'skipping "{p}" as it cannot be converted to float.')
 
     if verbose:
-        print('[INFO] CV names:',prop_names_float)
+        print("[INFO] CV names:", prop_names_float)
 
     # Extract properties
     properties = chemiscope.extract_properties(traj, only=prop_names_float)
@@ -317,45 +354,54 @@ def create_chemiscope_input(trajectory, filename = None, colvar = None, cvs=['*'
     # Define shape and colors
     shapes_selection = []
     for atoms in traj:
-        target_atoms = atoms.info.get('target_atoms', None)
-        for i,atom in enumerate(atoms):
+        target_atoms = atoms.info.get("target_atoms", None)
+        for i, atom in enumerate(atoms):
             if target_atoms is not None:
-                if not isinstance(target_atoms,np.ndarray):
+                if not isinstance(target_atoms, np.ndarray):
                     target_atoms = np.asarray([target_atoms])
-                shapes_selection.append({"radius": CR[CS.index(atom.symbol)], "color": None if i in target_atoms else '#d4d4d4' })
+                shapes_selection.append(
+                    {
+                        "radius": CR[CS.index(atom.symbol)],
+                        "color": None if i in target_atoms else "#d4d4d4",
+                    }
+                )
             else:
-                shapes_selection.append({"radius": CR[CS.index(atom.symbol)], "color": None })
+                shapes_selection.append(
+                    {"radius": CR[CS.index(atom.symbol)], "color": None}
+                )
     if target_atoms is not None and verbose:
         print('[INFO] "target_atoms" found in atoms.')
 
     # Write input
     if filename is None:
-        if isinstance(trajectory,str):
-            filename = os.path.splitext(trajectory)[0]+'_chemiscope.json.gz'
-        else: 
-            filename = 'chemiscope.json.gz'
+        if isinstance(trajectory, str):
+            filename = os.path.splitext(trajectory)[0] + "_chemiscope.json.gz"
+        else:
+            filename = "chemiscope.json.gz"
 
     chemiscope.write_input(
         filename,
         frames=traj,
         properties=properties,
         meta=dict(name="DEAL selection"),
-        shapes = { "selection": {
-            "kind": "sphere",
-            "parameters": {"atom": shapes_selection}
-            },
+        shapes={
+            "selection": {"kind": "sphere", "parameters": {"atom": shapes_selection}},
         },
-        settings={ 'structure': [{               
+        settings={
+            "structure": [
+                {
                     "atoms": False,
                     "bonds": False,
                     "shape": "selection",
                     "axes": "off",
                     "keepOrientation": False,
                     "playbackDelay": 700,
-                    }]
                 }
+            ]
+        },
     )
 
-    if verbose: print('[OUTPUT] Chemiscope input saved in:',filename)
+    if verbose:
+        print("[OUTPUT] Chemiscope input saved in:", filename)
 
     return filename

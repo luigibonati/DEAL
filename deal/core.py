@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass,field,asdict
+from dataclasses import dataclass, field, asdict
 from typing import List, Optional, Sequence
 from typing import List, Dict, Any
 
@@ -19,45 +19,47 @@ from flare.atoms import FLARE_Atoms
 
 from .utils import create_chemiscope_input
 
+
 @dataclass
 class DataConfig:
     # --- data / trajectory ---
     files: List[str]
     format: Optional[str] = None
-    index: str = ":"                 # ASE selection string
+    index: str = ":"  # ASE selection string
     colvar: Optional[List[str]] = None
-    shuffle: bool = False 
-    seed: int = 24 
+    shuffle: bool = False
+    seed: int = 24
+
 
 @dataclass
 class DEALConfig:
     # --- selection parameters ---
     threshold: float = 1.0
     update_threshold: Optional[float | List[float]] = None
-    
+
     max_atoms_added: Optional[float | int] = 0.2
     # max_atoms_added can be:
     #  - int >= 1 : explicit number of atoms to add
     #  - float in (0,1) : fraction of atoms to add (relative to system size)
-    #  - -1 : no limit 
-    #     
-    min_steps_with_model: int = 0     # frames between two selections
+    #  - -1 : no limit
+    #
+    min_steps_with_model: int = 0  # frames between two selections
 
-    initial_atoms: Optional[List[int] | float] = None  
+    initial_atoms: Optional[List[int] | float] = None
     # atoms to use for initial training. Allowed values:
-    #   - list of atom indices 
+    #   - list of atom indices
     #   - float in (0,1) : fraction of atoms (computed per species)
     #   - None (use 1 atom per species)
 
     # --- GP training options ---
-    force_only: bool = True           # ignore energies/stress if True
-    train_hyps: bool = False          # train hyperparams after each update
+    force_only: bool = True  # ignore energies/stress if True
+    train_hyps: bool = False  # train hyperparams after each update
 
     # --- output ---
     output_prefix: str = "deal"
-    verbose: bool | str = True       # allowed values: true/false/"debug" (default: false)
+    verbose: bool | str = True  # allowed values: true/false/"debug" (default: false)
     save_gp: bool = False
-    debug: bool = False              # internal debug flag
+    debug: bool = False  # internal debug flag
 
     # --- Validation of parameters ---
     def __post_init__(self):
@@ -68,7 +70,7 @@ class DEALConfig:
                 self.update_threshold = [0.8 * t for t in self.threshold]
             else:
                 self.update_threshold = 0.8 * self.threshold
-        
+
         # --- Check that threshold and update_threshold lists match in length ---
         if isinstance(self.threshold, list) and isinstance(self.update_threshold, list):
             if len(self.threshold) != len(self.update_threshold):
@@ -76,12 +78,14 @@ class DEALConfig:
                     f"Length of 'threshold' list ({len(self.threshold)}) must match "
                     f"length of 'update_threshold' list ({len(self.update_threshold)})"
                 )
-        if isinstance(self.threshold, list) and isinstance(self.update_threshold, float):
+        if isinstance(self.threshold, list) and isinstance(
+            self.update_threshold, float
+        ):
             self.update_threshold = [self.update_threshold for _ in self.threshold]
-            print(f"[WARNING] 'update_threshold' was a float while 'threshold' was a list. "
-                  f"Converted 'update_threshold' to list: {self.update_threshold}"
-                  )
-    
+            print(
+                f"[WARNING] 'update_threshold' was a float while 'threshold' was a list. "
+                f"Converted 'update_threshold' to list: {self.update_threshold}"
+            )
 
         # --- Check max_atoms_added ---
         if isinstance(self.max_atoms_added, int):
@@ -97,15 +101,21 @@ class DEALConfig:
                 # cast to int
                 self.max_atoms_added = int(self.max_atoms_added)
                 if self.max_atoms_added <= 0:
-                    print(f"[WARNING] Invalid max_atoms_added fraction. Resetting to '-1' (no limit).")
+                    print(
+                        f"[WARNING] Invalid max_atoms_added fraction. Resetting to '-1' (no limit)."
+                    )
                     self.max_atoms_added = -1
                 else:
-                    print(f"[WARNING] Invalid fraction of max_atoms_added. Casting to int '{self.max_atoms_added}'.")   
+                    print(
+                        f"[WARNING] Invalid fraction of max_atoms_added. Casting to int '{self.max_atoms_added}'."
+                    )
 
         # --- Check initial_atoms validity ---
         if isinstance(self.initial_atoms, float):
             if not (0 < self.initial_atoms < 1):
-                print(f"[WARNING] Invalid initial_atoms fraction '{self.initial_atoms}'. Resetting to None (use 1 per species).")
+                print(
+                    f"[WARNING] Invalid initial_atoms fraction '{self.initial_atoms}'. Resetting to None (use 1 per species)."
+                )
                 self.initial_atoms = None
 
         # --- Handle verbose/debug logic ---
@@ -114,8 +124,11 @@ class DEALConfig:
                 self.verbose = True
                 self.debug = True
             else:
-                print(f"[WARNING] Invalid verbose option '{self.verbose}'. Setting verbose to False.")
+                print(
+                    f"[WARNING] Invalid verbose option '{self.verbose}'. Setting verbose to False."
+                )
                 self.verbose = False
+
 
 @dataclass
 class FlareConfig:
@@ -123,25 +136,30 @@ class FlareConfig:
     gp: str = "SGP_Wrapper"
 
     # --- kernel ---
-    kernels: List[Dict[str, Any]] = field(default_factory=lambda: [
-        {"name": "NormalizedDotProduct", "sigma": 2.0, "power": 2}
-    ])
+    kernels: List[Dict[str, Any]] = field(
+        default_factory=lambda: [
+            {"name": "NormalizedDotProduct", "sigma": 2.0, "power": 2}
+        ]
+    )
     # --- descriptor ---
-    descriptors: List[Dict[str, Any]] = field(default_factory=lambda: [
-        {
-            "name": "B2",
-            "nmax": 8,
-            "lmax": 3,
-            "cutoff_function": "cosine",
-            "radial_basis": "chebyshev",
-        }
-    ])
+    descriptors: List[Dict[str, Any]] = field(
+        default_factory=lambda: [
+            {
+                "name": "B2",
+                "nmax": 8,
+                "lmax": 3,
+                "cutoff_function": "cosine",
+                "radial_basis": "chebyshev",
+            }
+        ]
+    )
     # --- species ---
-    species: list[int] = None 
+    species: list[int] = None
     # --- parameters ---
     cutoff: float = 4.5
     variance_type: str = "local"
     max_iterations: int = 20
+
 
 class DEAL:
     """
@@ -159,11 +177,10 @@ class DEAL:
         <output_prefix>_chemiscope.json.gz
     """
 
-    def __init__(self, 
-                 data_cfg: DataConfig, 
-                 deal_cfg: DEALConfig, 
-                 flare_cfg: FlareConfig):
-        
+    def __init__(
+        self, data_cfg: DataConfig, deal_cfg: DEALConfig, flare_cfg: FlareConfig
+    ):
+
         self.data_cfg = data_cfg
         self.deal_cfg = deal_cfg
         self.flare_cfg = flare_cfg
@@ -178,19 +195,19 @@ class DEAL:
 
         # Print configuratons is requested:
         if self.deal_cfg.verbose:
-            print('[INFO] Configurations:')
-            print('-',pformat(self.data_cfg))
-            print('-',pformat(self.deal_cfg))
-            print('-',pformat(self.flare_cfg))
-            print('')
+            print("[INFO] Configurations:")
+            print("-", pformat(self.data_cfg))
+            print("-", pformat(self.deal_cfg))
+            print("-", pformat(self.flare_cfg))
+            print("")
 
-        # Build SGP calculator 
+        # Build SGP calculator
         self.flare_calc, self.kernels = self._get_sgp_calc(asdict(self.flare_cfg))
         self.gp = self.flare_calc.gp_model
 
         self.selected_frames: List = []
         self.dft_count: int = 0
-        self.last_dft_step: int = -10**9   # effectively -∞
+        self.last_dft_step: int = -(10**9)  # effectively -∞
 
         # Timing accumulation
         self.timers = {
@@ -203,7 +220,7 @@ class DEAL:
         }
 
         self.rng = np.random.default_rng(self.data_cfg.seed)
-    
+
     # ------------------------------------------------------------------
     # basic helpers
     # ------------------------------------------------------------------
@@ -211,14 +228,14 @@ class DEAL:
     def _frames(self):
         """Generator over all frames, optionally shuffled, with
         atoms.info['frame'] containing the original global index."""
-        
+
         if not self.data_cfg.shuffle:
             # Streaming, non-shuffled mode
             global_idx = 0
             for fname in self.data_cfg.files:
-                for at in iread(fname,
-                                index=self.data_cfg.index,
-                                format=self.data_cfg.format):
+                for at in iread(
+                    fname, index=self.data_cfg.index, format=self.data_cfg.format
+                ):
                     at.info["frame"] = global_idx
                     global_idx += 1
                     yield at
@@ -229,9 +246,9 @@ class DEAL:
         global_idx = 0
 
         for fname in self.data_cfg.files:
-            for at in iread(fname,
-                            index=self.data_cfg.index,
-                            format=self.data_cfg.format):
+            for at in iread(
+                fname, index=self.data_cfg.index, format=self.data_cfg.format
+            ):
                 at.info["frame"] = global_idx
                 frames.append(at)
                 global_idx += 1
@@ -247,7 +264,9 @@ class DEAL:
         Reads only the first frame from the first file.
         """
         for fname in self.data_cfg.files:
-            for atoms in iread(fname, index=self.data_cfg.index, format=self.data_cfg.format):
+            for atoms in iread(
+                fname, index=self.data_cfg.index, format=self.data_cfg.format
+            ):
                 return sorted(set(atoms.get_atomic_numbers().tolist()))
 
     def _extract_dft(self, ase_atoms):
@@ -277,12 +296,12 @@ class DEAL:
 
     # ------------------------------------------------------------------
     # main loop
-    # ------------------------------------------------------------------    
+    # ------------------------------------------------------------------
     def run(self) -> None:
         t_start = time.perf_counter()
         for step, ase_frame in enumerate(self._frames()):
             step_start = time.perf_counter()
-            init_frame=False
+            init_frame = False
             # 1) DFT labels from original ASE frame
             t0 = time.perf_counter()
             dft_forces, dft_energy, dft_stress = self._extract_dft(ase_frame)
@@ -296,26 +315,43 @@ class DEAL:
             #     to bootstrap the model (no uncertainty check).
             if len(self.gp.training_data) == 0:
                 t_up0 = time.perf_counter()
-                init_frame=True
+                init_frame = True
                 if self.deal_cfg.debug:
-                    sys.stdout.write('\r' + f"[DEBUG] : step {step+1} : Initializing GP with first frame\n")
+                    sys.stdout.write(
+                        "\r"
+                        + f"[DEBUG] : step {step+1} : Initializing GP with first frame\n"
+                    )
                 if isinstance(self.deal_cfg.initial_atoms, list):
                     init_atoms = self.deal_cfg.initial_atoms
                 else:
                     unique_species = sorted(set(atoms.get_atomic_numbers().tolist()))
                     idx_species = {sp: [] for sp in unique_species}
                     for sp in unique_species:
-                        idx_species[sp] = [i for i, at in enumerate(atoms) if at.number == sp] 
-                        self.rng.shuffle(idx_species[sp])  # indices of this species randomly shuffle
-                    
-                    if self.deal_cfg.initial_atoms is None:   # use 1 atom per species
+                        idx_species[sp] = [
+                            i for i, at in enumerate(atoms) if at.number == sp
+                        ]
+                        self.rng.shuffle(
+                            idx_species[sp]
+                        )  # indices of this species randomly shuffle
+
+                    if self.deal_cfg.initial_atoms is None:  # use 1 atom per species
                         init_atoms = [idx_species[sp][0] for sp in unique_species]
-                    else:   # use fraction of atoms per species
+                    else:  # use fraction of atoms per species
                         init_atoms = []
                         for sp in unique_species:
-                            init_atoms += idx_species[sp][:int(np.ceil(self.deal_cfg.initial_atoms * len(idx_species[sp])))]
+                            init_atoms += idx_species[sp][
+                                : int(
+                                    np.ceil(
+                                        self.deal_cfg.initial_atoms
+                                        * len(idx_species[sp])
+                                    )
+                                )
+                            ]
                 if self.deal_cfg.debug:
-                    sys.stdout.write('\r' + f"[DEBUG] : step {step+1} : Initial atoms selected : {init_atoms}")
+                    sys.stdout.write(
+                        "\r"
+                        + f"[DEBUG] : step {step+1} : Initial atoms selected : {init_atoms}"
+                    )
                 self._update_gp(
                     atoms=atoms,
                     train_atoms=init_atoms,
@@ -328,31 +364,49 @@ class DEAL:
             # 3) Predict with SGP and compute uncertainties
             t_pred0 = time.perf_counter()
             atoms.calc = self.flare_calc
-            _ = atoms.get_forces()   # triggers GP eval and stores stds internally
-            
-            max_atom_added = self.deal_cfg.max_atoms_added if isinstance(self.deal_cfg.max_atoms_added, int) else int(np.ceil(self.deal_cfg.max_atoms_added * len(atoms)))
+            _ = atoms.get_forces()  # triggers GP eval and stores stds internally
+
+            max_atom_added = (
+                self.deal_cfg.max_atoms_added
+                if isinstance(self.deal_cfg.max_atoms_added, int)
+                else int(np.ceil(self.deal_cfg.max_atoms_added * len(atoms)))
+            )
             std_in_bound, target_atoms = is_std_in_bound(
-                self.deal_cfg.threshold * -1, # threshold = - std_tolerance_factor
+                self.deal_cfg.threshold * -1,  # threshold = - std_tolerance_factor
                 self.gp.force_noise,
                 atoms,
                 update_style="threshold",
                 update_threshold=self.deal_cfg.update_threshold,
             )
-            if ( 0 < max_atom_added < len(target_atoms) ): # only keep up to max_atoms_added atoms
-                target_atoms = target_atoms[-max_atom_added:]  
+            if (
+                0 < max_atom_added < len(target_atoms)
+            ):  # only keep up to max_atoms_added atoms
+                target_atoms = target_atoms[-max_atom_added:]
             self.timers["predict"] += time.perf_counter() - t_pred0
             if self.deal_cfg.debug:
-                sys.stdout.write('\r' + f"[DEBUG] : step {step+1} : {std_in_bound} : {target_atoms} : {self.deal_cfg.max_atoms_added if isinstance(self.deal_cfg.max_atoms_added, int) else int(np.ceil(self.deal_cfg.max_atoms_added * len(atoms)))}")
+                sys.stdout.write(
+                    "\r"
+                    + f"[DEBUG] : step {step+1} : {std_in_bound} : {target_atoms} : {self.deal_cfg.max_atoms_added if isinstance(self.deal_cfg.max_atoms_added, int) else int(np.ceil(self.deal_cfg.max_atoms_added * len(atoms)))}"
+                )
 
             steps_since_last = step - self.last_dft_step
-            
-            if (not std_in_bound) and (steps_since_last >= self.deal_cfg.min_steps_with_model):
+
+            if (not std_in_bound) and (
+                steps_since_last >= self.deal_cfg.min_steps_with_model
+            ):
                 # Select this frame & update GP
                 t_up0 = time.perf_counter()
                 self.last_dft_step = step
-                self._store_selected_frame(step, ase_frame, target_atoms+init_atoms if init_frame else target_atoms)
+                self._store_selected_frame(
+                    step,
+                    ase_frame,
+                    target_atoms + init_atoms if init_frame else target_atoms,
+                )
                 if self.deal_cfg.debug:
-                    sys.stdout.write('\r' + f"[DEBUG] : step {step+1} : Atoms selected : {target_atoms+init_atoms if init_frame else target_atoms}")
+                    sys.stdout.write(
+                        "\r"
+                        + f"[DEBUG] : step {step+1} : Atoms selected : {target_atoms+init_atoms if init_frame else target_atoms}"
+                    )
                 self._update_gp(
                     atoms=atoms,
                     train_atoms=list(target_atoms),
@@ -361,17 +415,18 @@ class DEAL:
                     dft_stress=dft_stress,
                 )
                 self.timers["update"] += time.perf_counter() - t_up0
-            elif std_in_bound and init_frame:# In initial frame case, store selected frame even if stds are okay 
+            elif (
+                std_in_bound and init_frame
+            ):  # In initial frame case, store selected frame even if stds are okay
                 self.last_dft_step = step
-                self._store_selected_frame(step, ase_frame,
-                                        target_atoms=init_atoms)
+                self._store_selected_frame(step, ase_frame, target_atoms=init_atoms)
             # ========== print progress ==========
             elapsed = time.perf_counter() - t_start
             step_time = time.perf_counter() - step_start
             self._print_progress(step, elapsed, step_time)
 
         # newline so terminal prompt doesn't collide with progress line
-        print('')
+        print("")
 
         # ------------------------------------------------------------------
         # outputs
@@ -389,8 +444,8 @@ class DEAL:
                 create_chemiscope_input(
                     trajectory=out_xyz,
                     filename=f"{self.deal_cfg.output_prefix}_chemiscope.json.gz",
-                    colvar=self.data_cfg.colvar, 
-                    verbose=self.deal_cfg.verbose
+                    colvar=self.data_cfg.colvar,
+                    verbose=self.deal_cfg.verbose,
                 )
                 self.timers["io_write"] += time.perf_counter() - t_io0
             except Exception as exc:
@@ -402,8 +457,10 @@ class DEAL:
                 self.flare_calc.write_model(f"{self.deal_cfg.output_prefix}_flare.json")
                 self.timers["io_write"] += time.perf_counter() - t_io0
                 if self.deal_cfg.verbose:
-                    print(f"[OUTPUT] Saved GP model to {self.deal_cfg.output_prefix}_flare.json")
-        
+                    print(
+                        f"[OUTPUT] Saved GP model to {self.deal_cfg.output_prefix}_flare.json"
+                    )
+
         # final total time
 
         self.timers["total"] = time.perf_counter() - t_start
@@ -473,8 +530,9 @@ class DEAL:
         descriptors = []
         for d in flare_config["descriptors"]:
             if "cutoff_matrix" in d:  # multiple cutoffs
-                assert np.allclose(np.array(d["cutoff_matrix"]).shape, (n_species, n_species)),\
-                    "cutoff_matrix needs to be of shape (n_species, n_species)"
+                assert np.allclose(
+                    np.array(d["cutoff_matrix"]).shape, (n_species, n_species)
+                ), "cutoff_matrix needs to be of shape (n_species, n_species)"
 
             if d["name"] == "B2":
                 radial_hyps = [0.0, cutoff]
@@ -511,13 +569,19 @@ class DEAL:
                 )
 
             elif d["name"] == "TwoBody":
-                desc_calc = TwoBody(cutoff, n_species, d["cutoff_function"], cutoff_hyps)
+                desc_calc = TwoBody(
+                    cutoff, n_species, d["cutoff_function"], cutoff_hyps
+                )
 
             elif d["name"] == "ThreeBody":
-                desc_calc = ThreeBody(cutoff, n_species, d["cutoff_function"], cutoff_hyps)
+                desc_calc = ThreeBody(
+                    cutoff, n_species, d["cutoff_function"], cutoff_hyps
+                )
 
             elif d["name"] == "FourBody":
-                desc_calc = FourBody(cutoff, n_species, d["cutoff_function"], cutoff_hyps)
+                desc_calc = FourBody(
+                    cutoff, n_species, d["cutoff_function"], cutoff_hyps
+                )
 
             else:
                 raise NotImplementedError(f"{d['name']} descriptor is not supported")
@@ -539,9 +603,9 @@ class DEAL:
             kernels=kernels,
             descriptor_calculators=descriptors,
             cutoff=cutoff,
-            sigma_e=flare_config.get("energy_noise",0.1),
-            sigma_f=flare_config.get("forces_noise",0.05),
-            sigma_s=flare_config.get("stress_noise",0.1),
+            sigma_e=flare_config.get("energy_noise", 0.1),
+            sigma_f=flare_config.get("forces_noise", 0.05),
+            sigma_s=flare_config.get("stress_noise", 0.1),
             species_map=species_map,
             variance_type=flare_config.get("variance_type", "local"),
             single_atom_energies=single_atom_energies,
@@ -620,7 +684,7 @@ class DEAL:
 
         struc_to_add.calc = SinglePointCalculator(struc_to_add, **sp_results)
 
-        # Update GP database 
+        # Update GP database
         self.gp.update_db(
             struc_to_add,
             dft_frcs,
