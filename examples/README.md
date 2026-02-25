@@ -31,3 +31,6 @@ ___
   - [MACE](3_preselection/mace/mace-preselection.ipynb)
   - [DeepMD](3_preselection/deepmd/deepmd-preselection.ipynb)
 
+### [4 Incremental selection](4_incremental_selection/README.md)
+
+- Shows an example of the usage of the Python API to progressively lower the threshold to include more data, until a target number is reached. 
