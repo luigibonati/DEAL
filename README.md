@@ -2,30 +2,30 @@
 
 **Data Efficient Active Learning for Machine Learning Potentials**
 
+> Reference: **Perego S. & Bonati L.**
+> *Data efficient machine learning potentials for modeling catalytic reactivity via active learning and enhanced sampling*,
+> **npj Computational Materials 10, 291 (2024)**
+> doi: [10.1038/s41524-024-01481-6](https://doi.org/10.1038/s41524-024-01481-6)
+
 DEAL selects non-redundant structures from atomistic trajectories via Sparse Gaussian Processes (SGP), to be used to train machine-learning interatomic potentials.
 
 It consists of two steps:
 1. preselection using the MLP uncertainty (e.g. max uncertainty obtained with query-by-committee)
 2. select a dataset of non-redundant configurations using the local predictive variance of a Gaussian Process
 
-The method is described in:
-
-> **Perego S. & Bonati L.**
-> *Data efficient machine learning potentials for modeling catalytic reactivity via active learning and enhanced sampling*,
-> **npj Computational Materials 10, 291 (2024)**
-> doi: [10.1038/s41524-024-01481-6](https://doi.org/10.1038/s41524-024-01481-6)
-
 In addition, step 2. can be also used to perform subsampling of a trajectory even without the uncertainty pre-selection (see [examples](examples/README.md))
 
-## Highlights
+A short practical [introduction](DEAL.md) describes the main ingredients (SGP, local descriptors, uncertainty).
+
+## Code highlights
 
 * Select structures based on SGP predictive variance. 
 * Analyze selected structures (e.g. along the trajectory or as a function of a CV)
 
-    <img src="examples/2_subsampling_formate/imgs/analysis.png" alt="drawing" width="824"/>
+    <img src="imgs/analysis.png" alt="drawing" width="824"/>
 * Interactive visualization using [chemiscope](https://chemiscope.org/)
 
-    <a href="https://chemiscope.org/?load=https://raw.githubusercontent.com/luigibonati/DEAL/refs/heads/main/examples/2_subsampling_formate/selection/deal_0.1_chemiscope.json.gz"> <img src="examples/2_subsampling_formate/imgs/chemiscope-viewer.png" alt="drawing" width="412"></a>
+    <a href="https://chemiscope.org/?load=https://raw.githubusercontent.com/luigibonati/DEAL/refs/heads/main/examples/2_subsampling_formate/selection/deal_0.1_chemiscope.json.gz"> <img src="imgs/chemiscope-viewer.png" alt="drawing" width="412"></a>
 
 ---
 
@@ -98,14 +98,14 @@ pip install .
 
 ---
 
-## 🧪 Usage
+##  Usage
 
 DEAL can be run either with a command-line tool (`deal`) or using the python class (`DEAL`).
 
 ---
 
 
-### 🟢 Minimal example
+###  Minimal example
 
 ```bash
 deal --file traj.xyz --threshold 0.1
@@ -166,7 +166,7 @@ One can also use a base config file and override via CLI the options:
 deal -c input.yaml -t 0.15
 ```
 
-### 🐍 Python Usage
+### Python Usage
 
 ```python
 # Import 
@@ -227,6 +227,8 @@ for thr in [0.10, 0.15, 0.20]:
 
 ## 🎛️ Choice of the parameters
 
+Below a quick guide, see the [introduction](DEAL.md) to DEAL for a more in-depth explanation.
+
 **Descriptors**
 
 Local environments are characterized via the Atomic Cluster Expansion formalism as implemented in `flare`. Key hyperparameters: body order (`B1/B2`), radial degree `nmax`, angular degree `lmax`, and `cutoff` (in Å).
@@ -249,11 +251,14 @@ Local environments are characterized via the Atomic Cluster Expansion formalism 
   initial_atoms: 0.15 # use up to 15% of the atoms (of each species) for GP initialization
 ```      
 
-The`threshold` parameter in the DEAL configuration controls when a local environment is flagged by the SGP’s predictive variance (normalized by the noise hyperparameter). If any environment exceeds the threshold, the GP is updated and that environment (plus any others above `update_threshold * threshold`, up to `max_atoms_added`) is added. 
+The`threshold` parameter in the DEAL configuration controls when a local environment is flagged by the SGP’s predictive variance (normalized by the noise hyperparameter). If any environment exceeds the threshold, the GP is updated and that environment (plus any others above `update_threshold`, up to `max_atoms_added`) is added. 
 
 Some tips:
 
-- A good starting point is around 0.1. As a rule of thumb, homogeneous, condensed and/or crystalline systems tend to have fewer different local environments and require smaller thresholds (<<0.1), whereas heterogeneous systems may require larger ones (>0.1).
-- Try a few values and compare how many structures are selected; distributions often are very similar across thresholds, what changes is the number of structures.
-- For active learning of ML potentials, a possible practical strategy is to pick an initial threshold (large for quickly covering all configurations), run the single-point calculations on the selected structure, and update the potential. Then, re-evaluate the already screened configuration (all) and, if it is not adequately described, restart DEAL selection with a tighter threshold. 
-Given the generally low cost of ML simulations, it is still advisable to perform a greater number of AL-cycles rather than re-evaluating existing structures, as the newly generated structures are expected to be more relevant as generated by an increasingly accurate interatomic potential.
+- The uncertainty values are unitless, and range between 0 and 1. Lower threshold means more selected structures; higher threshold, fewer selections. 
+- A good starting point is around 0.1. As a rule of thumb, homogeneous, condensed and/or crystalline systems tend to have fewer different local environments and require smaller thresholds (<<0.1), whereas heterogeneous systems may require larger ones (>0.1). This is also connected with the number of species (more species -> higher treshold required).
+- Try a few values and compare how many structures are selected; distributions often are very similar across thresholds, what changes is the number of structures. One can decide based on the computational budget (for DFT calculations).
+- A practical strategy is to perform **incremental selection**: start with a high threshold, then decrease it progressively until a target number of structures is reached (see example #4).
+- Use chemiscope to inspect selected structures and identify which environments triggered selection. 
+
+Note: the training time scales unfavorably with the number of samples. For a large dataset, it is advised to divide it in chuncks and run DEAL separately on each of them, and then performing a second DEAL selection on the output structures. 
