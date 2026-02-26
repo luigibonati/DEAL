@@ -38,6 +38,7 @@ A short practical [introduction](DEAL.md) describes the main ingredients (SGP, l
   - [With a YAML config file](#with-a-yaml-config-file)
   - [Python usage](#python-usage)
   - [Output files](#output-files)
+  - [Create a chemiscope file](#create-a-chemiscope-file)
   - [Multiple thresholds](#multiple-thresholds)
 - 🎛️ [Choice of the parameters](#choice-of-the-parameters)
 
@@ -57,9 +58,9 @@ DEAL requires:
 * `python<=3.13` 
 * [`flare==1.3.3b`](https://github.com/mir-group/flare)
 * `ase`
-* `chemiscope`
 * `pandas`
 * `numpy`
+* `chemiscope` (for visualization)
 
 ---
 
@@ -131,7 +132,6 @@ data:
   files: ["traj.xyz"]     # can be a single file or a list of files
   format: "extxyz"        # file format (e.g. extxyz, xyz, ...)
   index: ":"              # frame selection (e.g. ":", "0:100", [0,10,20]) [see ASE notation]
-  colvar: none            # collective variables file associated with the trajectory (optional, used for monitoring CVs in chemiscope)
   shuffle: false          # whether to shuffle the frames before processing (suggested true for MD data)
   seed: 42
 
@@ -190,20 +190,41 @@ deal.run()
 
 ### Output files
 
-In both cases the following files (with the default `output_prefix=deal`):
+In both cases the following file is generated (with the default `output_prefix=deal`):
 
 1. **`deal_selected.xyz` – selected frames** 
 
 Contains the atomic configurations where the GP uncertainty exceeded the threshold.
 Includes atoms.info["frame"] indicating the original trajectory index.
 
-2. **`deal_chemiscope.json.gz` – chemiscope visualization file**
+If `save_gp: true`, DEAL also writes:
+2. **`deal_flare.json` – final GP model**
 
-Can be viewed online at https://chemiscope.org/ or inside Python:
+### Create a chemiscope file
+
+After running `deal`, one can create a chemiscope visualization file with:
+
+```bash
+deal-chemiscope --prefix deal
+```
+
+or explicitly with the trajectory file and optionally also a COLVAR file:
+
+```bash
+deal-chemiscope --trajectory deal_selected.xyz --colvar COLVAR
+```
+
+`deal-chemiscope` creates a chemiscope visualization file from the selected structures.
+The file includes all numeric properties available in `atoms.info` for each frame, and,
+when `--colvar` is provided, it also includes the properties loaded from the COLVAR file.
+
+This writes `deal_chemiscope.json.gz` (by default with `--prefix deal`).
+It can be viewed online at https://chemiscope.org/ or inside Python:
 ```python
 import chemiscope
 chemiscope.show_input('deal_chemiscope.json.gz')
 ```
+See also the Chemiscope [documentation](https://chemiscope.org/docs/).
 
 ### Multiple thresholds
 
