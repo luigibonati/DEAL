@@ -28,6 +28,7 @@ dependencies = [
 
 [project.scripts]
 deal = "deal.cli:main"
+deal-chemiscope = "deal.chemiscope_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
