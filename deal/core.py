@@ -17,8 +17,6 @@ from ase.calculators.singlepoint import SinglePointCalculator
 from flare.learners.utils import is_std_in_bound
 from flare.atoms import FLARE_Atoms
 
-from .utils import create_chemiscope_input
-
 
 @dataclass
 class DataConfig:
@@ -174,7 +172,6 @@ class DEAL:
     Outputs:
         <output_prefix>_selected.xyz
         <output_prefix>_flare.json
-        <output_prefix>_chemiscope.json.gz
     """
 
     def __init__(
@@ -439,17 +436,6 @@ class DEAL:
 
             if self.deal_cfg.verbose:
                 print(f"[OUTPUT] Saved selected frames to: {out_xyz}\n")
-            try:
-                t_io0 = time.perf_counter()
-                create_chemiscope_input(
-                    trajectory=out_xyz,
-                    filename=f"{self.deal_cfg.output_prefix}_chemiscope.json.gz",
-                    colvar=self.data_cfg.colvar,
-                    verbose=self.deal_cfg.verbose,
-                )
-                self.timers["io_write"] += time.perf_counter() - t_io0
-            except Exception as exc:
-                print(f"[WARNING] Could not write chemiscope file: {exc}")
 
             if self.deal_cfg.save_gp:
                 # Save final SGP model

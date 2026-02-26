@@ -2,7 +2,6 @@ data:
   files: ["traj.xyz"]     # can be a single file or a list of files
   format: "extxyz"        # file format (e.g. extxyz, xyz, ...)
   index: ":"              # frame selection (e.g. ":", "0:100", [0,10,20]) [see ASE notation]
-  # colvar: none            # collective variables file associated with the trajectory (optional, used for monitoring CVs in chemiscope)
   shuffle: false          # whether to shuffle the frames before processing (suggested true for MD data)
   seed: 42
 

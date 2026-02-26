@@ -19,7 +19,7 @@ ___
 
 - Summary: 
     1. Filter the structures based on GP predictive variance. 
-    2. Visualize the selected structures with chemiscope.
+    2. Create a chemiscope file from selected structures and visualize it.
 
 - Notebook: [formate-subsampling.ipynb](2_subsampling_formate/formate-subsampling.ipynb)
 ___

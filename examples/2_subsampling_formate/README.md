@@ -3,7 +3,7 @@
 - Data: Formate dehydrogenation on Cu(110), series of MD simulations initiated from NEB images.
 - Summary: 
     1. Filter the structures based on GP predictive variance. 
-    2. Visualize the selected structures with chemiscope.
+    2. Create a chemiscope file and visualize selected structures.
 
 ___ 
 
@@ -24,17 +24,22 @@ cd ..
 ```
 
 #### Selection
-Run DEAL with different thresholds and visualize structures
+Run DEAL with different thresholds
 ```bash
 deal -c input.yaml
 ```
 Consider running it on a HPC cluster or on a large-memory machine.
 An example SLURM script to run DEAL on Daint@Alps-CSCS HPC system is provdied for [`N2 example`](../1_activelearning_N2/README.md).
 
+#### Chemiscope
+Create chemiscope files from DEAL outputs
+```bash
+deal-chemiscope --trajectory b_selection/deal_0.15_selected.xyz --colvar a_input/COLVAR
+```
+
 #### Analyze results
 The selection can be analyzed with the jupyter notebook [`formate-subsampling.ipynb`](`formate-subsampling.ipynb`).
 
-The results `*_chemiscope.json.gz` can also be directly visualized online at https://chemiscope.org/
-
+The generated `*_chemiscope.json.gz` files can be directly visualized online at https://chemiscope.org/
 
 

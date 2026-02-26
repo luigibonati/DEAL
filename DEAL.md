@@ -4,7 +4,7 @@ DEAL (Data-Efficient Active Learning) [1] is a trajectory subsampling strategy f
 
 ## 1) Active Learning of Machine-Learning Potentials
 
-<p align="center"> <img src="imgs/active_learning.png" width="600"/> </p>
+<p align="center"> <img src="imgs/active_learning.png" width="800"/> </p>
 
 A standard active-learning cycle for machine learning potentials is:
 1. Run MD simulations (possibly with enhanced-sampling) with the current ML potential.
@@ -23,7 +23,7 @@ We first introduce the ingredients used by DEAL, particularly the sparse Gaussia
 ### 2.1 Local descriptors (ACE)
 
 In the Atomic Cluster Expansion formalism, each atom $i$ is represented by a descriptor vector $\mathbf{d}_i$ built from its local environment $\rho_i$, that is, the list of neighbors within a cutoff radius:
-<p align="center"> <img src="imgs/ACE.png" width="200"/> </p>
+<p align="center"> <img src="imgs/ACE.png" width="300"/> </p>
 
 At high level, these descriptors encode:
 - radial information (how neighbor density varies with distance,
@@ -57,11 +57,9 @@ where:
 
 - $\{\rho_m\}_{m=1}^{M}$ are environments in the training set
 - $k(\rho, \rho_m)$ is the kernel similarity measured as:
+
 $$
-k(\rho_i,\rho_j)=\sigma^2
-\left(
-\frac{\mathbf{d}_i\cdot\mathbf{d}_j}{\|\mathbf{d}_i\|\,\|\mathbf{d}_j\|}
-\right)^{2}
+k(\rho_i,\rho_j)=\sigma^2 \left( \frac{\mathbf{d}_i\cdot\mathbf{d}_j}{\|\mathbf{d}_i\|\,\|\mathbf{d}_j\|} \right)^{2}
 $$
 
 - $\alpha_m$ are learned GP weights during training.
@@ -73,12 +71,10 @@ So the model compares each current environment against reference environments in
 The key feature of a GP is that it provides a predictions of both the value and its associated uncertainty. For a query local environment $\rho$, the GP predictive variance associated with the the atomic energy contribution has the form:
 
 $$
-\mathrm{Var}[\varepsilon(\rho)]
-=\frac{k(\rho,\rho)-\mathbf{k}^\top\mathbf{K}^{-1}\mathbf{k}}{
-    \sigma^2
-}
+\mathrm{Var}[\varepsilon(\rho)] =\frac{k(\rho,\rho)-\mathbf{k}^\top\mathbf{K}^{-1}\mathbf{k}}{ \sigma^2}
 $$
-which depends on the matrix of kernel similarities between the enviroment and the reference set $\mathbf{k}$ (each element is $k(\rho,\rho_m)$), as well as the one between the reference structures themselves ($\mathbf{K}$). In other words, the predicted uncertainty is based only on structural novelty measured in local-environment space, not on the (DFT) energies. Furthermore, in FLARE the variance is normalized by the lengthscale hyperparameter $\sigma$, to yield a number betweeen 0 and 1.
+
+which depends on the matrix of kernel similarities between the enviroment and the reference set $\mathbf{k}$ (each element is $k(\rho,\rho_m)$ ), as well as the one between the reference structures themselves ($\mathbf{K}$). In other words, the predicted uncertainty is based only on structural novelty measured in local-environment space, not on the (DFT) energies. Furthermore, in FLARE the variance is normalized by the lengthscale hyperparameter $\sigma$, to yield a number betweeen 0 and 1.
 
 ## 3) How DEAL selection works
 
@@ -102,7 +98,7 @@ Relevant `deal` config parameters:
 - A good starting point is around 0.1. As a rule of thumb, homogeneous, condensed and/or crystalline systems tend to have fewer different local environments and require smaller thresholds (<<0.1), whereas heterogeneous systems may require larger ones (>0.1). This is also connected with the number of species (more species -> higher treshold required).
 - Try a few values and compare how many structures are selected; distributions often are very similar across thresholds, what changes is the number of structures. One can decide based on the computational budget (for DFT calculations).
 - A practical strategy is to perform **incremental selection**: start with a high threshold, then decrease it progressively until a target number of structures is reached (see example #4).
-- Use chemiscope to inspect selected structures and identify which environments triggered selection. 
+- Use chemiscope to inspect selected structures and identify which environments triggered selection (see example #2)
 
 Note: the training time scales unfavorably with the number of samples. For a large dataset, it is advised to divide it in chuncks and run DEAL separately on each of them, and then performing a second DEAL selection on the output structures. 
 

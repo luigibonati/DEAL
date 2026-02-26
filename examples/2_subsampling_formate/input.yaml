@@ -2,7 +2,6 @@ data:
   files: "a_input/fcu.xyz"       # can be a single value or a list             
   format: extxyz               # format of the input file
   index: ":"                   # frames to consider during file reading (see ASE notation)  
-  colvar: a_input/COLVAR        # save collective variables into selected frames for chemiscope
   shuffle: true                # shuffle the data before selection -> useful to de-correlate frames if they come from a MD trajectory
 
 deal:
