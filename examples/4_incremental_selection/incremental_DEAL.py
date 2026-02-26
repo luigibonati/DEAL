@@ -57,7 +57,7 @@ for iter, deal_threshold in enumerate(thresholds):
     # ------------------------
     traj_selected = read(f"{output_prefix}_selected.xyz", ":")
     frames_selected = [f.info["original_frame"] for f in traj_selected]
-    traj_new = traj_selected + [f for f in traj_input if f.info["original_frame"] not in frames_selected]
+    traj_new = [f for f in traj_input if f.info["original_frame"] in frames_selected] + [f for f in traj_input if f.info["original_frame"] not in frames_selected]
     write(f"{deal_folder}/input_iter{iter+1}.xyz", traj_new)
 
     # ------------------------
