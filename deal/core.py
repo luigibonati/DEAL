@@ -204,6 +204,7 @@ class DEAL:
         self.gp = self.flare_calc.gp_model
 
         self.selected_frames: List = []
+        self.selected_output_file: str = f"{self.deal_cfg.output_prefix}_selected.xyz"
         self.dft_count: int = 0
         self.last_dft_step: int = -(10**9)  # effectively -∞
         self.full_trajectory_file: Optional[str] = None
@@ -495,24 +496,23 @@ class DEAL:
         # ------------------------------------------------------------------
         # outputs
         # ------------------------------------------------------------------
-        if self.selected_frames:
+        if self.selected_frames and self.deal_cfg.verbose:
+            print(f"[OUTPUT] Saved selected frames to: {self.selected_output_file}\n")
+
+        if self.selected_frames and self.deal_cfg.save_gp:
+            # Save final SGP model
             t_io0 = time.perf_counter()
-            out_xyz = f"{self.deal_cfg.output_prefix}_selected.xyz"
-            write(out_xyz, self.selected_frames)
+            self.flare_calc.write_model(f"{self.deal_cfg.output_prefix}_flare.json")
             self.timers["io_write"] += time.perf_counter() - t_io0
-
             if self.deal_cfg.verbose:
-                print(f"[OUTPUT] Saved selected frames to: {out_xyz}\n")
+                print(
+                    f"[OUTPUT] Saved GP model to {self.deal_cfg.output_prefix}_flare.json"
+                )
 
-            if self.deal_cfg.save_gp:
-                # Save final SGP model
-                t_io0 = time.perf_counter()
-                self.flare_calc.write_model(f"{self.deal_cfg.output_prefix}_flare.json")
-                self.timers["io_write"] += time.perf_counter() - t_io0
-                if self.deal_cfg.verbose:
-                    print(
-                        f"[OUTPUT] Saved GP model to {self.deal_cfg.output_prefix}_flare.json"
-                    )
+        if self.deal_cfg.save_full_trajectory and self.deal_cfg.verbose:
+            print(
+                f"[OUTPUT] Saved full trajectory with atomic uncertainty to: {self.full_trajectory_file}"
+            )
 
         if self.deal_cfg.save_full_trajectory and self.deal_cfg.verbose:
             print(
@@ -685,6 +685,9 @@ class DEAL:
         if "frame" not in sel.info:
             sel.info["frame"] = step
         sel.info["target_atoms"] = np.array(target_atoms, dtype=int)
+        t_io0 = time.perf_counter()
+        write(self.selected_output_file, sel, append=(self.dft_count != 0))
+        self.timers["io_write"] += time.perf_counter() - t_io0
         self.selected_frames.append(sel)
         self.dft_count += 1
 
