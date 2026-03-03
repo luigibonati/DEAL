@@ -497,7 +497,7 @@ class DEAL:
         # outputs
         # ------------------------------------------------------------------
         if self.selected_frames and self.deal_cfg.verbose:
-            print(f"[OUTPUT] Saved selected frames to: {self.selected_output_file}\n")
+            print(f"[OUTPUT] Saved selected frames to: {self.selected_output_file}")
 
         if self.selected_frames and self.deal_cfg.save_gp:
             # Save final SGP model
@@ -508,11 +508,6 @@ class DEAL:
                 print(
                     f"[OUTPUT] Saved GP model to {self.deal_cfg.output_prefix}_flare.json"
                 )
-
-        if self.deal_cfg.save_full_trajectory and self.deal_cfg.verbose:
-            print(
-                f"[OUTPUT] Saved full trajectory with atomic uncertainty to: {self.full_trajectory_file}"
-            )
 
         if self.deal_cfg.save_full_trajectory and self.deal_cfg.verbose:
             print(
