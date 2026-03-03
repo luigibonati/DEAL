@@ -57,6 +57,7 @@ class DEALConfig:
     output_prefix: str = "deal"
     verbose: bool | str = True  # allowed values: true/false/"debug" (default: false)
     save_gp: bool = False
+    save_full_trajectory: bool = False
     debug: bool = False  # internal debug flag
 
     # --- Validation of parameters ---
@@ -203,8 +204,14 @@ class DEAL:
         self.gp = self.flare_calc.gp_model
 
         self.selected_frames: List = []
+        self.selected_output_file: str = f"{self.deal_cfg.output_prefix}_selected.xyz"
         self.dft_count: int = 0
         self.last_dft_step: int = -(10**9)  # effectively -∞
+        self.full_trajectory_file: Optional[str] = None
+        if self.deal_cfg.save_full_trajectory:
+            self.full_trajectory_file = (
+                f"{self.deal_cfg.output_prefix}_trajectory_uncertainty.xyz"
+            )
 
         # Timing accumulation
         self.timers = {
@@ -291,6 +298,61 @@ class DEAL:
         sys.stdout.write("\r" + msg)
         sys.stdout.flush()
 
+    def _extract_atomic_uncertainty(self, atoms, n_atoms: int) -> np.ndarray:
+        """
+        Extract per-atom uncertainty values from FLARE_Atoms after prediction.
+        Returns a (n_atoms,) array, using NaN values when unavailable.
+        """
+        candidates = [
+            getattr(atoms, "stds", None),
+            getattr(atoms, "local_uncertainties", None),
+            getattr(atoms, "uncertainties", None),
+        ]
+        if getattr(atoms, "calc", None) is not None:
+            results = getattr(atoms.calc, "results", {}) or {}
+            candidates.extend(
+                [
+                    results.get("stds"),
+                    results.get("local_uncertainties"),
+                    results.get("uncertainties"),
+                ]
+            )
+
+        raw = next((c for c in candidates if c is not None), None)
+        if raw is None:
+            return np.full(n_atoms, np.nan, dtype=float)
+
+        stds = np.asarray(raw, dtype=float)
+        if stds.ndim == 1:
+            if stds.shape[0] == n_atoms:
+                return stds.copy()
+            if stds.shape[0] == 3 * n_atoms:
+                return np.linalg.norm(stds.reshape(n_atoms, 3), axis=1)
+            if stds.size == n_atoms:
+                return stds.reshape(n_atoms)
+        elif stds.ndim == 2 and stds.shape[0] == n_atoms:
+            if stds.shape[1] == 1:
+                return stds[:, 0].copy()
+            return np.linalg.norm(stds, axis=1)
+
+        return np.full(n_atoms, np.nan, dtype=float)
+
+    def _store_full_trajectory_frame(
+        self, step: int, ase_frame, atomic_uncertainty: np.ndarray
+    ) -> None:
+        """Store one frame of the full trajectory with atomic uncertainty array."""
+        if self.full_trajectory_file is None:
+            return
+        frame = ase_frame.copy()
+        frame.info["step"] = step
+        frame.arrays["atomic_uncertainty"] = np.asarray(atomic_uncertainty, dtype=float)
+        frame.info["max_atomic_uncertainty"] = (
+            float(np.nanmax(atomic_uncertainty))
+            if np.any(np.isfinite(atomic_uncertainty))
+            else float("nan")
+        )
+        write(self.full_trajectory_file, frame, append=(step != 0))
+
     # ------------------------------------------------------------------
     # main loop
     # ------------------------------------------------------------------
@@ -362,6 +424,12 @@ class DEAL:
             t_pred0 = time.perf_counter()
             atoms.calc = self.flare_calc
             _ = atoms.get_forces()  # triggers GP eval and stores stds internally
+            atomic_uncertainty = self._extract_atomic_uncertainty(atoms, len(atoms))
+
+            if self.deal_cfg.save_full_trajectory:
+                t_io0 = time.perf_counter()
+                self._store_full_trajectory_frame(step, ase_frame, atomic_uncertainty)
+                self.timers["io_write"] += time.perf_counter() - t_io0
 
             max_atom_added = (
                 self.deal_cfg.max_atoms_added
@@ -428,24 +496,23 @@ class DEAL:
         # ------------------------------------------------------------------
         # outputs
         # ------------------------------------------------------------------
-        if self.selected_frames:
+        if self.selected_frames and self.deal_cfg.verbose:
+            print(f"[OUTPUT] Saved selected frames to: {self.selected_output_file}")
+
+        if self.selected_frames and self.deal_cfg.save_gp:
+            # Save final SGP model
             t_io0 = time.perf_counter()
-            out_xyz = f"{self.deal_cfg.output_prefix}_selected.xyz"
-            write(out_xyz, self.selected_frames)
+            self.flare_calc.write_model(f"{self.deal_cfg.output_prefix}_flare.json")
             self.timers["io_write"] += time.perf_counter() - t_io0
-
             if self.deal_cfg.verbose:
-                print(f"[OUTPUT] Saved selected frames to: {out_xyz}\n")
+                print(
+                    f"[OUTPUT] Saved GP model to {self.deal_cfg.output_prefix}_flare.json"
+                )
 
-            if self.deal_cfg.save_gp:
-                # Save final SGP model
-                t_io0 = time.perf_counter()
-                self.flare_calc.write_model(f"{self.deal_cfg.output_prefix}_flare.json")
-                self.timers["io_write"] += time.perf_counter() - t_io0
-                if self.deal_cfg.verbose:
-                    print(
-                        f"[OUTPUT] Saved GP model to {self.deal_cfg.output_prefix}_flare.json"
-                    )
+        if self.deal_cfg.save_full_trajectory and self.deal_cfg.verbose:
+            print(
+                f"[OUTPUT] Saved full trajectory with atomic uncertainty to: {self.full_trajectory_file}"
+            )
 
         # final total time
 
@@ -613,6 +680,9 @@ class DEAL:
         if "frame" not in sel.info:
             sel.info["frame"] = step
         sel.info["target_atoms"] = np.array(target_atoms, dtype=int)
+        t_io0 = time.perf_counter()
+        write(self.selected_output_file, sel, append=(self.dft_count != 0))
+        self.timers["io_write"] += time.perf_counter() - t_io0
         self.selected_frames.append(sel)
         self.dft_count += 1
 
