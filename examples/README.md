@@ -33,4 +33,4 @@ ___
 
 ### [4 Incremental selection](4_incremental_selection/README.md)
 
-- Shows an example of the usage of the Python API to progressively lower the threshold to include more data, until a target number is reached. 
+- Shows an example that progressively lower the threshold to include more data, until a target number is reached. 
