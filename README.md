@@ -145,6 +145,7 @@ deal:
   train_hyps: false      # whether to re-train hyperparameters at each iteration (slower) 
   verbose: true          # allowed values: true/false/"debug" (default: true)
   save_gp: false
+  save_full_trajectory: false  # if true, writes <prefix>_trajectory_uncertainty.xyz with per-atom array "atomic_uncertainty"
 
 flare_calc:
   gp: SGP_Wrapper        # (see flare's documentation)
@@ -199,6 +200,13 @@ Includes atoms.info["frame"] indicating the original trajectory index.
 
 If `save_gp: true`, DEAL also writes:
 2. **`deal_flare.json` – final GP model**
+
+If `save_full_trajectory: true`, DEAL also writes:
+3. **`deal_trajectory_uncertainty.xyz` – full trajectory with uncertainties**
+
+Contains all processed frames with:
+- per-atom array `atomic_uncertainty` (saved in `atoms.arrays`)
+- frame scalar `max_atomic_uncertainty` (saved in `atoms.info`)
 
 ### Create a chemiscope file
 
