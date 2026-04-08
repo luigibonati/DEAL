@@ -2,7 +2,8 @@ import argparse
 import sys
 import yaml
 
-from .core import DataConfig, DEALConfig, FlareConfig, DEAL
+from .config import DataConfig, DEALConfig, FlareConfig
+from .core import DEAL
 
 
 def parse_args():
@@ -66,21 +67,24 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # Build configs and run
+    # Build data/flare configs
     data_cfg = DataConfig(**cfg_dict["data"])
-    deal_cfg = DEALConfig(**cfg_dict["deal"])
     flare_cfg = FlareConfig(**cfg_dict["flare"])
 
     # Handle multiple thresholds
-    if isinstance(deal_cfg.threshold, list):
-        prefix = deal_cfg.output_prefix
-        for threshold, update_thresh in zip(
-            deal_cfg.threshold, deal_cfg.update_threshold
-        ):
-            print("[DEAL] Running with threshold:", threshold)
-            deal_cfg.threshold = threshold
-            deal_cfg.update_threshold = update_thresh
-            deal_cfg.output_prefix = f"{prefix}_{str(threshold)}"
+    deal_dict = dict(cfg_dict["deal"])
+    thresholds = cfg_dict["deal"]["threshold"]
+
+    if isinstance(thresholds, list):
+        for th in thresholds:
+            run_deal_dict = dict(deal_dict)
+            run_deal_dict["threshold"] = th
+            prefix = deal_dict.get("output_prefix", "deal")
+            run_deal_dict["output_prefix"] = f"{prefix}_{th}"
+
+            print(f"[DEAL] Running with threshold: {th}")
+            deal_cfg = DEALConfig(**run_deal_dict)
             DEAL(data_cfg, deal_cfg, flare_cfg).run()
     else:
+        deal_cfg = DEALConfig(**deal_dict)
         DEAL(data_cfg, deal_cfg, flare_cfg).run()

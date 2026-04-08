@@ -266,28 +266,37 @@ def create_chemiscope_input(
             try:
                 colvar = load_dataframe(colvar)
 
-                # if time in colvar use colvar.time and atoms.info['frame'] to ensure consistency
+                # if time in colvar use atoms.info['original_frame'] for consistency
                 dt, consistent = None, True
                 atoms_old = traj[0]
-                if "time" in colvar.columns and "frame" in atoms_old.info:
+                if "time" in colvar.columns and "original_frame" in atoms_old.info:
                     # check if time is consistent between colvar and traj
                     if verbose:
                         print(
                             f"[INFO] Checking time consistency between COLVAR and trajectory..."
                         )
                     for i, atoms in enumerate(traj[1:]):
+                        if "original_frame" not in atoms.info:
+                            consistent = False
+                            break
                         if dt is None:
-                            frames = atoms.info["frame"] - atoms_old.info["frame"]
+                            frames = (
+                                atoms.info["original_frame"]
+                                - atoms_old.info["original_frame"]
+                            )
                             time_interval = (
-                                colvar["time"].loc[atoms.info["frame"]]
-                                - colvar["time"].loc[atoms_old.info["frame"]]
+                                colvar["time"].loc[atoms.info["original_frame"]]
+                                - colvar["time"].loc[atoms_old.info["original_frame"]]
                             )
                             dt = time_interval / frames
                         else:  # check consistency
-                            frames = atoms.info["frame"] - atoms_old.info["frame"]
+                            frames = (
+                                atoms.info["original_frame"]
+                                - atoms_old.info["original_frame"]
+                            )
                             time_interval = (
-                                colvar["time"].loc[atoms.info["frame"]]
-                                - colvar["time"].loc[atoms_old.info["frame"]]
+                                colvar["time"].loc[atoms.info["original_frame"]]
+                                - colvar["time"].loc[atoms_old.info["original_frame"]]
                             )
                             dt_new = time_interval / frames
                             if np.abs(dt - dt_new) > 1e-8:
@@ -301,7 +310,7 @@ def create_chemiscope_input(
                         for i, atoms in enumerate(traj):
                             for col in colvar.columns:
                                 atoms.info["colvar." + col] = colvar[col].loc[
-                                    atoms.info["frame"]
+                                    atoms.info["original_frame"]
                                 ]
                     else:
                         print(

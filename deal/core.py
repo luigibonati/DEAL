@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict
 from typing import List, Optional, Sequence
-from typing import List, Dict, Any
 
 import numpy as np
 import sys
@@ -11,153 +10,13 @@ import json
 from copy import deepcopy
 import time
 
-from ase.io import iread, write
+from ase import Atoms
+from ase.io import write
 from ase.calculators.singlepoint import SinglePointCalculator
 
 from flare.learners.utils import is_std_in_bound
 from flare.atoms import FLARE_Atoms
-
-
-@dataclass
-class DataConfig:
-    # --- data / trajectory ---
-    files: List[str]
-    format: Optional[str] = None
-    index: str = ":"  # ASE selection string
-    colvar: Optional[List[str]] = None
-    shuffle: bool = False
-    seed: int = 24
-
-
-@dataclass
-class DEALConfig:
-    # --- selection parameters ---
-    threshold: float = 1.0
-    update_threshold: Optional[float | List[float]] = None
-
-    max_atoms_added: Optional[float | int] = 0.2
-    # max_atoms_added can be:
-    #  - int >= 1 : explicit number of atoms to add
-    #  - float in (0,1) : fraction of atoms to add (relative to system size)
-    #  - -1 : no limit
-    #
-    min_steps_with_model: int = 0  # frames between two selections
-
-    initial_atoms: Optional[List[int] | float] = None
-    # atoms to use for initial training. Allowed values:
-    #   - list of atom indices
-    #   - float in (0,1) : fraction of atoms (computed per species)
-    #   - None (use 1 atom per species)
-
-    # --- GP training options ---
-    force_only: bool = True  # ignore energies/stress if True
-    train_hyps: bool = False  # train hyperparams after each update
-
-    # --- output ---
-    output_prefix: str = "deal"
-    verbose: bool | str = True  # allowed values: true/false/"debug" (default: false)
-    save_gp: bool = False
-    save_full_trajectory: bool = False
-    debug: bool = False  # internal debug flag
-
-    # --- Validation of parameters ---
-    def __post_init__(self):
-        # --- Default update_threshold ---
-        if self.update_threshold is None:
-            if isinstance(self.threshold, list):
-                # If threshold is a list, compute update_threshold as list too
-                self.update_threshold = [0.8 * t for t in self.threshold]
-            else:
-                self.update_threshold = 0.8 * self.threshold
-
-        # --- Check that threshold and update_threshold lists match in length ---
-        if isinstance(self.threshold, list) and isinstance(self.update_threshold, list):
-            if len(self.threshold) != len(self.update_threshold):
-                raise ValueError(
-                    f"Length of 'threshold' list ({len(self.threshold)}) must match "
-                    f"length of 'update_threshold' list ({len(self.update_threshold)})"
-                )
-        if isinstance(self.threshold, list) and isinstance(
-            self.update_threshold, float
-        ):
-            self.update_threshold = [self.update_threshold for _ in self.threshold]
-            print(
-                f"[WARNING] 'update_threshold' was a float while 'threshold' was a list. "
-                f"Converted 'update_threshold' to list: {self.update_threshold}"
-            )
-
-        # --- Check max_atoms_added ---
-        if isinstance(self.max_atoms_added, int):
-            if self.max_atoms_added == 0 or self.max_atoms_added < -1:
-                print(
-                    f"[WARNING] Invalid value for max_atoms_added "
-                    f"'{self.max_atoms_added}'. Resetting to '-1' (no limit)."
-                )
-                self.max_atoms_added = -1
-
-        elif isinstance(self.max_atoms_added, float):
-            if not (0 < self.max_atoms_added < 1):
-                # cast to int
-                self.max_atoms_added = int(self.max_atoms_added)
-                if self.max_atoms_added <= 0:
-                    print(
-                        f"[WARNING] Invalid max_atoms_added fraction. Resetting to '-1' (no limit)."
-                    )
-                    self.max_atoms_added = -1
-                else:
-                    print(
-                        f"[WARNING] Invalid fraction of max_atoms_added. Casting to int '{self.max_atoms_added}'."
-                    )
-
-        # --- Check initial_atoms validity ---
-        if isinstance(self.initial_atoms, float):
-            if not (0 < self.initial_atoms < 1):
-                print(
-                    f"[WARNING] Invalid initial_atoms fraction '{self.initial_atoms}'. Resetting to None (use 1 per species)."
-                )
-                self.initial_atoms = None
-
-        # --- Handle verbose/debug logic ---
-        if isinstance(self.verbose, str):
-            if self.verbose.lower() == "debug":
-                self.verbose = True
-                self.debug = True
-            else:
-                print(
-                    f"[WARNING] Invalid verbose option '{self.verbose}'. Setting verbose to False."
-                )
-                self.verbose = False
-
-
-@dataclass
-class FlareConfig:
-    # --- gp ---
-    gp: str = "SGP_Wrapper"
-
-    # --- kernel ---
-    kernels: List[Dict[str, Any]] = field(
-        default_factory=lambda: [
-            {"name": "NormalizedDotProduct", "sigma": 2.0, "power": 2}
-        ]
-    )
-    # --- descriptor ---
-    descriptors: List[Dict[str, Any]] = field(
-        default_factory=lambda: [
-            {
-                "name": "B2",
-                "nmax": 8,
-                "lmax": 3,
-                "cutoff_function": "cosine",
-                "radial_basis": "chebyshev",
-            }
-        ]
-    )
-    # --- species ---
-    species: list[int] = None
-    # --- parameters ---
-    cutoff: float = 4.5
-    variance_type: str = "local"
-    max_iterations: int = 20
+from .config import DataConfig, DEALConfig, FlareConfig
 
 
 class DEAL:
@@ -179,42 +38,18 @@ class DEAL:
         self, data_cfg: DataConfig, deal_cfg: DEALConfig, flare_cfg: FlareConfig
     ):
 
-        self.data_cfg = data_cfg
-        self.deal_cfg = deal_cfg
-        self.flare_cfg = flare_cfg
+        # Configure using provided config objects
+        self.configure_run(data_cfg, deal_cfg, flare_cfg)
 
-        # Check if a single traj or a list is provided
-        if isinstance(self.data_cfg.files, str):
-            self.data_cfg.files = [self.data_cfg.files]
-
-        # Automatically detect species if not specified
-        if self.flare_cfg.species is None:
-            self.flare_cfg.species = self._get_species()
-
-        # Print configuratons is requested:
         if self.deal_cfg.verbose:
             print("[INFO] Configurations:")
             print("-", pformat(self.data_cfg))
             print("-", pformat(self.deal_cfg))
-            print("-", pformat(self.flare_cfg))
-            print("")
-
-        # Build SGP calculator
-        self.flare_calc, self.kernels = self._get_sgp_calc(asdict(self.flare_cfg))
-        self.gp = self.flare_calc.gp_model
-
-        self.selected_frames: List = []
-        self.selected_output_file: str = f"{self.deal_cfg.output_prefix}_selected.xyz"
-        self.dft_count: int = 0
-        self.last_dft_step: int = -(10**9)  # effectively -∞
-        self.full_trajectory_file: Optional[str] = None
-        if self.deal_cfg.save_full_trajectory:
-            self.full_trajectory_file = (
-                f"{self.deal_cfg.output_prefix}_trajectory_uncertainty.xyz"
-            )
+            print("-", pformat(self.flare_cfg),"\n")
 
         # Timing accumulation
         self.timers = {
+            "start": time.perf_counter(),
             "total": 0.0,
             "extract_dft": 0.0,
             "predict": 0.0,
@@ -223,55 +58,85 @@ class DEAL:
             "other": 0.0,
         }
 
-        self.rng = np.random.default_rng(self.data_cfg.seed)
+    def configure_run(
+        self,
+        data_cfg: Optional[DataConfig] = None,
+        deal_cfg: Optional[DEALConfig] = None,
+        flare_cfg: Optional[FlareConfig] = None,
+    ) -> None:
+        """
+        Setup configuration objects when provided.
+        SGP is rebuilt only when flare_cfg is provided.
+        """
+        data_changed = data_cfg is not None
+        deal_changed = deal_cfg is not None
+        flare_changed = flare_cfg is not None
+
+        if data_changed:
+            if not isinstance(data_cfg, DataConfig):
+                raise TypeError(
+                    f"Expected DataConfig for data_cfg, got {type(data_cfg)}."
+                )
+            self.data_cfg = data_cfg
+            self.rng = np.random.default_rng(self.data_cfg.seed)
+
+        if deal_changed:
+            if not isinstance(deal_cfg, DEALConfig):
+                raise TypeError(
+                    f"Expected DEALConfig for deal_cfg, got {type(deal_cfg)}."
+                )
+            self.deal_cfg = deal_cfg
+
+        if flare_changed:
+            if not isinstance(flare_cfg, FlareConfig):
+                raise TypeError(
+                    f"Expected FlareConfig for flare_cfg, got {type(flare_cfg)}."
+                )
+            self.flare_cfg = flare_cfg
+
+        if data_changed and not flare_changed and self.flare_cfg.species is not None:
+            data_species = self._get_species()
+            if data_species != sorted(self.flare_cfg.species):
+                raise ValueError(
+                    "Input species changed but FLARE model was not rebuilt. "
+                    "Pass flare_cfg to configure_run to rebuild SGP."
+                )
+
+        if flare_changed:
+            if self.flare_cfg.species is None:
+                self.flare_cfg.species = self._get_species()
+            self.flare_calc, self.kernels = self._get_sgp_calc(asdict(self.flare_cfg))
+            self.gp = self.flare_calc.gp_model
+            self.selected_frames = []
+            self.dft_count = 0
+
+        self.last_dft_step = -(10**9)
 
     # ------------------------------------------------------------------
     # basic helpers
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _copy_atoms_with_results(atoms: Atoms) -> Atoms:
+        copied = atoms.copy()
+        if atoms.calc is not None:
+            copied.calc = SinglePointCalculator(copied)
+            copied.calc.results = deepcopy(getattr(atoms.calc, "results", {}) or {})
+        return copied
+
     def _frames(self):
-        """Generator over all frames, optionally shuffled, with
-        atoms.info['frame'] containing the original global index."""
-
-        if not self.data_cfg.shuffle:
-            # Streaming, non-shuffled mode
-            global_idx = 0
-            for fname in self.data_cfg.files:
-                for at in iread(
-                    fname, index=self.data_cfg.index, format=self.data_cfg.format
-                ):
-                    at.info["frame"] = global_idx
-                    global_idx += 1
-                    yield at
-            return
-
-        # --- Shuffling mode: load all frames first ---
-        frames = []
-        global_idx = 0
-
-        for fname in self.data_cfg.files:
-            for at in iread(
-                fname, index=self.data_cfg.index, format=self.data_cfg.format
-            ):
-                at.info["frame"] = global_idx
-                frames.append(at)
-                global_idx += 1
-
-        self.rng.shuffle(frames)
-
-        for at in frames:
-            yield at
+        """Generator over frames prepared in DataConfig."""
+        for atoms in self.data_cfg.images or []:
+            yield self._copy_atoms_with_results(atoms)
 
     def _get_species(self):
         """
         Detect species automatically using the DataConfig instance.
-        Reads only the first frame from the first file.
+        Reads only the first available frame.
         """
-        for fname in self.data_cfg.files:
-            for atoms in iread(
-                fname, index=self.data_cfg.index, format=self.data_cfg.format
-            ):
-                return sorted(set(atoms.get_atomic_numbers().tolist()))
+        for atoms in self.data_cfg.images or []:
+            return sorted(set(atoms.get_atomic_numbers().tolist()))
+        raise ValueError("Could not detect species: no input frames available.")
 
     def _extract_dft(self, ase_atoms):
         """
@@ -287,8 +152,18 @@ class DEAL:
             )
 
         res = ase_atoms.calc.results
+        if "forces" not in res:
+            raise RuntimeError(
+                "Frame is missing 'forces' in calculator results. "
+                "Input data must include force labels."
+            )
+        if "energy" not in res and "energy" not in ase_atoms.info:
+            raise RuntimeError(
+                "Frame is missing 'energy' in calculator results/info. "
+                "Input data must include energy labels."
+            )
         forces = np.array(res["forces"])
-        energy = float(res.get("energy", ase_atoms.info.get("energy", 0.0)))
+        energy = float(res["energy"]) if "energy" in res else float(ase_atoms.info["energy"])
         stress = res.get("stress", None)
 
         return forces, energy, stress
@@ -341,7 +216,7 @@ class DEAL:
         self, step: int, ase_frame, atomic_uncertainty: np.ndarray
     ) -> None:
         """Store one frame of the full trajectory with atomic uncertainty array."""
-        if self.full_trajectory_file is None:
+        if not self.deal_cfg.save_full_trajectory:
             return
         frame = ase_frame.copy()
         frame.info["step"] = step
@@ -351,13 +226,12 @@ class DEAL:
             if np.any(np.isfinite(atomic_uncertainty))
             else float("nan")
         )
-        write(self.full_trajectory_file, frame, append=(step != 0))
+        write(f"{self.deal_cfg.output_prefix}_trajectory_uncertainty.xyz", frame, append=(step != 0))
 
     # ------------------------------------------------------------------
     # main loop
     # ------------------------------------------------------------------
     def run(self) -> None:
-        t_start = time.perf_counter()
         for step, ase_frame in enumerate(self._frames()):
             step_start = time.perf_counter()
             init_frame = False
@@ -486,7 +360,7 @@ class DEAL:
                 self.last_dft_step = step
                 self._store_selected_frame(step, ase_frame, target_atoms=init_atoms)
             # ========== print progress ==========
-            elapsed = time.perf_counter() - t_start
+            elapsed = time.perf_counter() - self.timers["start"]
             step_time = time.perf_counter() - step_start
             self._print_progress(step, elapsed, step_time)
 
@@ -497,7 +371,7 @@ class DEAL:
         # outputs
         # ------------------------------------------------------------------
         if self.selected_frames and self.deal_cfg.verbose:
-            print(f"[OUTPUT] Saved selected frames to: {self.selected_output_file}")
+            print(f"[OUTPUT] Saved selected frames to: {self.deal_cfg.output_prefix}_selected.xyz")
 
         if self.selected_frames and self.deal_cfg.save_gp:
             # Save final SGP model
@@ -511,15 +385,15 @@ class DEAL:
 
         if self.deal_cfg.save_full_trajectory and self.deal_cfg.verbose:
             print(
-                f"[OUTPUT] Saved full trajectory with atomic uncertainty to: {self.full_trajectory_file}"
+                f"[OUTPUT] Saved full trajectory with atomic uncertainty {self.deal_cfg.output_prefix}_trajectory_uncertainty.xyz to:"
             )
 
         # final total time
 
-        self.timers["total"] = time.perf_counter() - t_start
+        self.timers["total"] = time.perf_counter() 
 
         if self.deal_cfg.verbose:
-            total = self.timers["total"]
+            total = self.timers["total"] - self.timers["start"]
             extract = self.timers["extract_dft"]
             pred = self.timers["predict"]
             upd = self.timers["update"]
@@ -677,11 +551,12 @@ class DEAL:
         """Keep a copy of the selected ASE frame for writing to XYZ."""
         sel = ase_frame.copy()
         sel.info["step"] = step
-        if "frame" not in sel.info:
-            sel.info["frame"] = step
+        if "original_frame" not in sel.info:
+            sel.info["original_frame"] = step
+        sel.info["threshold"] = self.deal_cfg.threshold
         sel.info["target_atoms"] = np.array(target_atoms, dtype=int)
         t_io0 = time.perf_counter()
-        write(self.selected_output_file, sel, append=(self.dft_count != 0))
+        write(f"{self.deal_cfg.output_prefix}_selected.xyz", sel, append=(self.dft_count != 0))
         self.timers["io_write"] += time.perf_counter() - t_io0
         self.selected_frames.append(sel)
         self.dft_count += 1
