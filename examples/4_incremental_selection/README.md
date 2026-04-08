@@ -33,8 +33,8 @@ Customize the parameters in the file `incremental_DEAL.py`:
 # ------------------------
 traj_input_file = "a_input/shuffled.xyz"
 deal_folder = "b_selection"
-max_iterations = 5
-max_selected = 16
+max_iterations = 10
+max_selected = 50
 threshold_factor = 0.75
 ```
 
@@ -65,13 +65,22 @@ Example output:
 
 ```raw 
 ITERATION 0 (threshold: 0.75)
-[DEAL] Examined:    50 | Selected:     6 | Speed:   0.42 s/step | Elapsed:    30.01 s
+[DEAL] Examined:   200 | Selected:     7 | Speed:   0.45 s/step | Elapsed:    98.32 s
 
 ITERATION 1 (threshold: 0.562)
-[DEAL] Examined:    44 | Selected:     9 | Speed:   0.48 s/step | Elapsed:    29.41 s
+[DEAL] Examined:   193 | Selected:    12 | Speed:   0.44 s/step | Elapsed:   203.37 s
 
 ITERATION 2 (threshold: 0.422)
-[DEAL] Examined:    41 | Selected:    16 | Speed:   0.35 s/step | Elapsed:    56.98 s
+[DEAL] Examined:   188 | Selected:    21 | Speed:   0.43 s/step | Elapsed:   353.09 s
 
-Stopping loop: (selected = 16 >= max_selected = 16)
+ITERATION 3 (threshold: 0.316)
+[DEAL] Examined:   179 | Selected:    33 | Speed:   0.43 s/step | Elapsed:   579.85 s
+
+ITERATION 4 (threshold: 0.237)
+[DEAL] Examined:   167 | Selected:    46 | Speed:   0.46 s/step | Elapsed:   891.99 s
+
+ITERATION 5 (threshold: 0.178)
+[DEAL] Examined:   154 | Selected:    57 | Speed:   0.46 s/step | Elapsed:  1227.35 s
+
+Stopping loop: (selected = 57 >= max_selected = 50)
 ```

@@ -9,15 +9,14 @@ from deal import DataConfig, DEALConfig, FlareConfig, DEAL
 # ------------------------
 traj_input_file = "a_input/shuffled.xyz"
 deal_folder = "b_selection"
-max_iterations = 5
-max_selected = 16
-threshold_factor = 0.75
+max_iterations = 10
+max_selected = 50
 
 # ------------------------
 # setup
 # ------------------------
 Path(deal_folder).mkdir(parents=True, exist_ok=True)
-traj_input = read(traj_input_file, ":50")
+traj_input = read(traj_input_file, ":")
 
 if 'original_frame' not in traj_input[0].info:
     for i,atoms in enumerate(traj_input):
@@ -28,6 +27,7 @@ if 'original_frame' not in traj_input[0].info:
 # ------------------------
 frames_selected = set()
 
+threshold_factor = 0.75
 thresholds = [np.round(np.power(threshold_factor,i+1), 3) for i in range(max_iterations)]
 
 for iter, deal_threshold in enumerate(thresholds):
