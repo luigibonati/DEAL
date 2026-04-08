@@ -20,6 +20,32 @@ class DataConfig:
     shuffle: bool = False
     seed: int = 24
 
+    def __repr__(self) -> str:
+        n_frames = len(self.atoms_list) if self.atoms_list is not None else 0
+        formulas = set()
+        if self.atoms_list:
+            for atoms in self.atoms_list:
+                try:
+                    formulas.add(atoms.get_chemical_formula())
+                except Exception:
+                    pass
+        if formulas:
+            formula_repr = "{" + ", ".join(repr(f) for f in sorted(formulas)) + "}"
+        else:
+            formula_repr = "set()"
+        return (
+            "DataConfig("
+            f"files={self.files}, "
+            f"n_frames={n_frames}, "
+            f"formula={formula_repr}, "
+            f"format={self.format!r}, "
+            f"index={self.index!r}, "
+            f"colvar={self.colvar!r}, "
+            f"shuffle={self.shuffle}, "
+            f"seed={self.seed}"
+            ")"
+        )
+
     def __post_init__(self):
         if isinstance(self.files, str):
             self.files = [self.files]
