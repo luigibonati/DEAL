@@ -20,6 +20,7 @@ deal:
   train_hyps: false
   verbose: debug
   save_gp: false
+  save_full_trajectory: true
 
 flare:
   gp: SGP_Wrapper               # (see flare's documentation)
