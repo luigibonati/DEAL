@@ -37,11 +37,13 @@ A short practical [introduction](DEAL.md) describes the main ingredients (SGP, l
   - [Minimal example](#minimal-example)
   - [With a YAML config file](#with-a-yaml-config-file)
   - [Python usage](#python-usage)
-  - [Output files](#output-files)
   - [Multiple thresholds](#multiple-thresholds)
   - [Incremental selection (CLI)](#incremental-selection-cli)
+- [Files]((#files))
+  - [Input files](#input-files)
+  - [Output files](#output-files)
   - [Create a chemiscope file](#create-a-chemiscope-file)
-  - 🎛️ [Choice of the parameters](#choice-of-the-parameters)
+- 🎛️ [Choice of the parameters](#choice-of-the-parameters)
 
 ---
 
@@ -200,24 +202,6 @@ deal.run()
 
 ```
 
-### Output files
-
-In both cases the following file is generated (with the default `output_prefix=deal`):
-
-1. **`deal_selected.xyz` – selected frames** 
-
-Contains the atomic configurations where the GP uncertainty exceeded the threshold.
-Includes atoms.info["original_frame"] indicating the original trajectory index.
-If `save_gp: true`, DEAL also writes:
-2. **`deal_flare.json` – final GP model**
-
-If `save_full_trajectory: true`, DEAL also writes:
-3. **`deal_trajectory_uncertainty.xyz` – full trajectory with uncertainties**
-
-They both contain:
-- per-atom array `atomic_uncertainty` (saved in `atoms.arrays`)
-- frame scalar `max_atomic_uncertainty` (saved in `atoms.info`)
-
 ### Multiple thresholds
 
 If the CLI receives a list of thresholds, DEAL will run once per threshold
@@ -257,6 +241,30 @@ At each iteration `i` (starting from 1), the threshold is decreased as:
 The run stops when one of these conditions is met: either selected structures reach `max_selected` or `max_iterations` is reached.
 
 Note: `threshold` and `max_selected` are mutually exclusive in the CLI.
+
+## Files
+
+### Input files
+
+As explained in the [introduction](DEAL.md), DEAL builds a model for energy and forces using a sparse Gaussian process, although this is used only as a proxy for uncertainty. For this reason, DEAL expects to receive a trajectory as input, for example stored in an .extxyz file, containing both energies and forces. However, since the predictive uncertainty does not depend on the labels, these do not need to be recalculated at the DFT level; in fact, they could be obtained by evaluating the trajectory with an ML potential. 
+
+### Output files
+
+In both cases the following file is generated (with the default `output_prefix=deal`):
+
+1. **`deal_selected.xyz` – selected frames** 
+
+Contains the atomic configurations where the GP uncertainty exceeded the threshold.
+Includes atoms.info["original_frame"] indicating the original trajectory index.
+If `save_gp: true`, DEAL also writes:
+2. **`deal_flare.json` – final GP model**
+
+If `save_full_trajectory: true`, DEAL also writes:
+3. **`deal_trajectory_uncertainty.xyz` – full trajectory with uncertainties**
+
+They both contain:
+- per-atom array `atomic_uncertainty` (saved in `atoms.arrays`)
+- frame scalar `max_atomic_uncertainty` (saved in `atoms.info`)
 
 ### Create a chemiscope file
 
