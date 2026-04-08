@@ -149,10 +149,10 @@ deal:
   #max_iterations: 10     # max iterations for incremental mode
   #threshold_factor: 0.75 # threshold_i = threshold_factor**(i+1)
   
-  update_threshold: 0.08 # if not set it is chosen as 0.8 * threshold 
+  update_threshold: none # if not set it is chosen as 0.8 * threshold 
   max_atoms_added: 0.2    # limit the number of selected environments added per configuration (can be int (number of atoms) float (0,1) (fraction of total atoms), or -1 (no limit)
   initial_atoms: none     # specify which atoms to use for GP initialization (list, fraction or number. Default: none, 1 atom per species)
-  output_prefix: deal     # prefix for output files (threshold will be appended as suffix)
+  output_prefix: deal     # prefix for output files
   force_only: true
   train_hyps: false       # whether to re-train hyperparameters at each iteration (slower) 
   verbose: true           # allowed values: true/false/"debug" (default: true)
