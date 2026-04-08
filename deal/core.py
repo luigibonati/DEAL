@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
-from typing import List, Optional, Sequence
-from typing import List, Dict, Any
+from typing import List, Optional, Sequence, Dict, Any
 
 import numpy as np
 import sys
@@ -11,6 +10,7 @@ import json
 from copy import deepcopy
 import time
 
+from ase import Atoms
 from ase.io import iread, write
 from ase.calculators.singlepoint import SinglePointCalculator
 
@@ -21,12 +21,49 @@ from flare.atoms import FLARE_Atoms
 @dataclass
 class DataConfig:
     # --- data / trajectory ---
-    files: List[str]
+    files: Optional[str | List[str]] = None
+    atoms_list: Optional[List[Atoms]] = None
     format: Optional[str] = None
     index: str = ":"  # ASE selection string
     colvar: Optional[List[str]] = None
     shuffle: bool = False
     seed: int = 24
+
+    def __post_init__(self):
+        if isinstance(self.files, str):
+            self.files = [self.files]
+
+        if self.files is not None and len(self.files) == 0:
+            self.files = None
+        if self.atoms_list is not None and len(self.atoms_list) == 0:
+            self.atoms_list = None
+
+        if self.files is not None and self.atoms_list is not None:
+            raise ValueError(
+                "Provide exactly one of 'files' or 'atoms_list' in DataConfig."
+            )
+        if self.files is None and self.atoms_list is None:
+            raise ValueError(
+                "Provide exactly one of 'files' or 'atoms_list' in DataConfig."
+            )
+
+        if self.files is not None:
+            loaded_atoms = []
+            for fname in self.files:
+                loaded_atoms.extend(
+                    list(iread(fname, index=self.index, format=self.format))
+                )
+            if len(loaded_atoms) == 0:
+                raise ValueError("DataConfig does not contain any frames.")
+            self.atoms_list = loaded_atoms
+            self.files = None
+
+        if self.atoms_list is not None:
+            for i, atoms in enumerate(self.atoms_list):
+                if not isinstance(atoms, Atoms):
+                    raise TypeError(
+                        f"DataConfig.atoms_list[{i}] is not an ASE Atoms object."
+                    )
 
 
 @dataclass
@@ -57,6 +94,7 @@ class DEALConfig:
     output_prefix: str = "deal"
     verbose: bool | str = True  # allowed values: true/false/"debug" (default: false)
     save_gp: bool = False
+    save_full_trajectory: bool = False
     debug: bool = False  # internal debug flag
 
     # --- Validation of parameters ---
@@ -178,36 +216,18 @@ class DEAL:
         self, data_cfg: DataConfig, deal_cfg: DEALConfig, flare_cfg: FlareConfig
     ):
 
-        self.data_cfg = data_cfg
-        self.deal_cfg = deal_cfg
-        self.flare_cfg = flare_cfg
+        # Configure using provided config objects
+        self.configure_run(data_cfg, deal_cfg, flare_cfg)
 
-        # Check if a single traj or a list is provided
-        if isinstance(self.data_cfg.files, str):
-            self.data_cfg.files = [self.data_cfg.files]
-
-        # Automatically detect species if not specified
-        if self.flare_cfg.species is None:
-            self.flare_cfg.species = self._get_species()
-
-        # Print configuratons is requested:
         if self.deal_cfg.verbose:
             print("[INFO] Configurations:")
             print("-", pformat(self.data_cfg))
             print("-", pformat(self.deal_cfg))
-            print("-", pformat(self.flare_cfg))
-            print("")
-
-        # Build SGP calculator
-        self.flare_calc, self.kernels = self._get_sgp_calc(asdict(self.flare_cfg))
-        self.gp = self.flare_calc.gp_model
-
-        self.selected_frames: List = []
-        self.dft_count: int = 0
-        self.last_dft_step: int = -(10**9)  # effectively -∞
+            print("-", pformat(self.flare_cfg),"\n")
 
         # Timing accumulation
         self.timers = {
+            "start": time.perf_counter(),
             "total": 0.0,
             "extract_dft": 0.0,
             "predict": 0.0,
@@ -216,11 +236,73 @@ class DEAL:
             "other": 0.0,
         }
 
-        self.rng = np.random.default_rng(self.data_cfg.seed)
+    def configure_run(
+        self,
+        data_cfg: Optional[DataConfig] = None,
+        deal_cfg: Optional[DEALConfig] = None,
+        flare_cfg: Optional[FlareConfig] = None,
+    ) -> None:
+        """
+        Setup configuration objects when provided.
+        SGP is rebuilt only when flare_cfg is provided.
+        """
+        data_changed = data_cfg is not None
+        deal_changed = deal_cfg is not None
+        flare_changed = flare_cfg is not None
+
+        if data_changed:
+            if not isinstance(data_cfg, DataConfig):
+                raise TypeError(
+                    f"Expected DataConfig for data_cfg, got {type(data_cfg)}."
+                )
+            self.data_cfg = data_cfg
+            self.data_cfg.__post_init__()
+            self.rng = np.random.default_rng(self.data_cfg.seed)
+
+        if deal_changed:
+            if not isinstance(deal_cfg, DEALConfig):
+                raise TypeError(
+                    f"Expected DEALConfig for deal_cfg, got {type(deal_cfg)}."
+                )
+            self.deal_cfg = deal_cfg
+            self.deal_cfg.__post_init__()
+
+        if flare_changed:
+            if not isinstance(flare_cfg, FlareConfig):
+                raise TypeError(
+                    f"Expected FlareConfig for flare_cfg, got {type(flare_cfg)}."
+                )
+            self.flare_cfg = flare_cfg
+
+        if data_changed and not flare_changed and self.flare_cfg.species is not None:
+            data_species = self._get_species()
+            if data_species != sorted(self.flare_cfg.species):
+                raise ValueError(
+                    "Input species changed but FLARE model was not rebuilt. "
+                    "Pass flare_cfg to configure_run to rebuild SGP."
+                )
+
+        if flare_changed:
+            if self.flare_cfg.species is None:
+                self.flare_cfg.species = self._get_species()
+            self.flare_calc, self.kernels = self._get_sgp_calc(asdict(self.flare_cfg))
+            self.gp = self.flare_calc.gp_model
+            self.selected_frames = []
+            self.dft_count = 0
+
+        self.last_dft_step = -(10**9)
 
     # ------------------------------------------------------------------
     # basic helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _copy_atoms_with_results(atoms: Atoms) -> Atoms:
+        copied = atoms.copy()
+        if atoms.calc is not None:
+            copied.calc = SinglePointCalculator(copied)
+            copied.calc.results = deepcopy(getattr(atoms.calc, "results", {}) or {})
+        return copied
 
     def _frames(self):
         """Generator over all frames, optionally shuffled, with
@@ -229,26 +311,22 @@ class DEAL:
         if not self.data_cfg.shuffle:
             # Streaming, non-shuffled mode
             global_idx = 0
-            for fname in self.data_cfg.files:
-                for at in iread(
-                    fname, index=self.data_cfg.index, format=self.data_cfg.format
-                ):
-                    at.info["frame"] = global_idx
-                    global_idx += 1
-                    yield at
+            for atoms in self.data_cfg.atoms_list or []:
+                at = self._copy_atoms_with_results(atoms)
+                at.info["frame"] = global_idx
+                global_idx += 1
+                yield at
             return
 
         # --- Shuffling mode: load all frames first ---
         frames = []
         global_idx = 0
 
-        for fname in self.data_cfg.files:
-            for at in iread(
-                fname, index=self.data_cfg.index, format=self.data_cfg.format
-            ):
-                at.info["frame"] = global_idx
-                frames.append(at)
-                global_idx += 1
+        for atoms in self.data_cfg.atoms_list or []:
+            at = self._copy_atoms_with_results(atoms)
+            at.info["frame"] = global_idx
+            frames.append(at)
+            global_idx += 1
 
         self.rng.shuffle(frames)
 
@@ -258,13 +336,11 @@ class DEAL:
     def _get_species(self):
         """
         Detect species automatically using the DataConfig instance.
-        Reads only the first frame from the first file.
+        Reads only the first available frame.
         """
-        for fname in self.data_cfg.files:
-            for atoms in iread(
-                fname, index=self.data_cfg.index, format=self.data_cfg.format
-            ):
-                return sorted(set(atoms.get_atomic_numbers().tolist()))
+        for atoms in self.data_cfg.atoms_list or []:
+            return sorted(set(atoms.get_atomic_numbers().tolist()))
+        raise ValueError("Could not detect species: no input frames available.")
 
     def _extract_dft(self, ase_atoms):
         """
@@ -280,8 +356,18 @@ class DEAL:
             )
 
         res = ase_atoms.calc.results
+        if "forces" not in res:
+            raise RuntimeError(
+                "Frame is missing 'forces' in calculator results. "
+                "Input data must include force labels."
+            )
+        if "energy" not in res and "energy" not in ase_atoms.info:
+            raise RuntimeError(
+                "Frame is missing 'energy' in calculator results/info. "
+                "Input data must include energy labels."
+            )
         forces = np.array(res["forces"])
-        energy = float(res.get("energy", ase_atoms.info.get("energy", 0.0)))
+        energy = float(res["energy"]) if "energy" in res else float(ase_atoms.info["energy"])
         stress = res.get("stress", None)
 
         return forces, energy, stress
@@ -291,11 +377,65 @@ class DEAL:
         sys.stdout.write("\r" + msg)
         sys.stdout.flush()
 
+    def _extract_atomic_uncertainty(self, atoms, n_atoms: int) -> np.ndarray:
+        """
+        Extract per-atom uncertainty values from FLARE_Atoms after prediction.
+        Returns a (n_atoms,) array, using NaN values when unavailable.
+        """
+        candidates = [
+            getattr(atoms, "stds", None),
+            getattr(atoms, "local_uncertainties", None),
+            getattr(atoms, "uncertainties", None),
+        ]
+        if getattr(atoms, "calc", None) is not None:
+            results = getattr(atoms.calc, "results", {}) or {}
+            candidates.extend(
+                [
+                    results.get("stds"),
+                    results.get("local_uncertainties"),
+                    results.get("uncertainties"),
+                ]
+            )
+
+        raw = next((c for c in candidates if c is not None), None)
+        if raw is None:
+            return np.full(n_atoms, np.nan, dtype=float)
+
+        stds = np.asarray(raw, dtype=float)
+        if stds.ndim == 1:
+            if stds.shape[0] == n_atoms:
+                return stds.copy()
+            if stds.shape[0] == 3 * n_atoms:
+                return np.linalg.norm(stds.reshape(n_atoms, 3), axis=1)
+            if stds.size == n_atoms:
+                return stds.reshape(n_atoms)
+        elif stds.ndim == 2 and stds.shape[0] == n_atoms:
+            if stds.shape[1] == 1:
+                return stds[:, 0].copy()
+            return np.linalg.norm(stds, axis=1)
+
+        return np.full(n_atoms, np.nan, dtype=float)
+
+    def _store_full_trajectory_frame(
+        self, step: int, ase_frame, atomic_uncertainty: np.ndarray
+    ) -> None:
+        """Store one frame of the full trajectory with atomic uncertainty array."""
+        if not self.deal_cfg.save_full_trajectory:
+            return
+        frame = ase_frame.copy()
+        frame.info["step"] = step
+        frame.arrays["atomic_uncertainty"] = np.asarray(atomic_uncertainty, dtype=float)
+        frame.info["max_atomic_uncertainty"] = (
+            float(np.nanmax(atomic_uncertainty))
+            if np.any(np.isfinite(atomic_uncertainty))
+            else float("nan")
+        )
+        write(f"{self.deal_cfg.output_prefix}_trajectory_uncertainty.xyz", frame, append=(step != 0))
+
     # ------------------------------------------------------------------
     # main loop
     # ------------------------------------------------------------------
     def run(self) -> None:
-        t_start = time.perf_counter()
         for step, ase_frame in enumerate(self._frames()):
             step_start = time.perf_counter()
             init_frame = False
@@ -362,6 +502,12 @@ class DEAL:
             t_pred0 = time.perf_counter()
             atoms.calc = self.flare_calc
             _ = atoms.get_forces()  # triggers GP eval and stores stds internally
+            atomic_uncertainty = self._extract_atomic_uncertainty(atoms, len(atoms))
+
+            if self.deal_cfg.save_full_trajectory:
+                t_io0 = time.perf_counter()
+                self._store_full_trajectory_frame(step, ase_frame, atomic_uncertainty)
+                self.timers["io_write"] += time.perf_counter() - t_io0
 
             max_atom_added = (
                 self.deal_cfg.max_atoms_added
@@ -418,7 +564,7 @@ class DEAL:
                 self.last_dft_step = step
                 self._store_selected_frame(step, ase_frame, target_atoms=init_atoms)
             # ========== print progress ==========
-            elapsed = time.perf_counter() - t_start
+            elapsed = time.perf_counter() - self.timers["start"]
             step_time = time.perf_counter() - step_start
             self._print_progress(step, elapsed, step_time)
 
@@ -428,31 +574,30 @@ class DEAL:
         # ------------------------------------------------------------------
         # outputs
         # ------------------------------------------------------------------
-        if self.selected_frames:
+        if self.selected_frames and self.deal_cfg.verbose:
+            print(f"[OUTPUT] Saved selected frames to: {self.deal_cfg.output_prefix}_selected.xyz")
+
+        if self.selected_frames and self.deal_cfg.save_gp:
+            # Save final SGP model
             t_io0 = time.perf_counter()
-            out_xyz = f"{self.deal_cfg.output_prefix}_selected.xyz"
-            write(out_xyz, self.selected_frames)
+            self.flare_calc.write_model(f"{self.deal_cfg.output_prefix}_flare.json")
             self.timers["io_write"] += time.perf_counter() - t_io0
-
             if self.deal_cfg.verbose:
-                print(f"[OUTPUT] Saved selected frames to: {out_xyz}\n")
+                print(
+                    f"[OUTPUT] Saved GP model to {self.deal_cfg.output_prefix}_flare.json"
+                )
 
-            if self.deal_cfg.save_gp:
-                # Save final SGP model
-                t_io0 = time.perf_counter()
-                self.flare_calc.write_model(f"{self.deal_cfg.output_prefix}_flare.json")
-                self.timers["io_write"] += time.perf_counter() - t_io0
-                if self.deal_cfg.verbose:
-                    print(
-                        f"[OUTPUT] Saved GP model to {self.deal_cfg.output_prefix}_flare.json"
-                    )
+        if self.deal_cfg.save_full_trajectory and self.deal_cfg.verbose:
+            print(
+                f"[OUTPUT] Saved full trajectory with atomic uncertainty {self.deal_cfg.output_prefix}_trajectory_uncertainty.xyz to:"
+            )
 
         # final total time
 
-        self.timers["total"] = time.perf_counter() - t_start
+        self.timers["total"] = time.perf_counter() 
 
         if self.deal_cfg.verbose:
-            total = self.timers["total"]
+            total = self.timers["total"] - self.timers["start"]
             extract = self.timers["extract_dft"]
             pred = self.timers["predict"]
             upd = self.timers["update"]
@@ -612,7 +757,11 @@ class DEAL:
         sel.info["step"] = step
         if "frame" not in sel.info:
             sel.info["frame"] = step
+        sel.info["threshold"] = self.deal_cfg.threshold
         sel.info["target_atoms"] = np.array(target_atoms, dtype=int)
+        t_io0 = time.perf_counter()
+        write(f"{self.deal_cfg.output_prefix}_selected.xyz", sel, append=(self.dft_count != 0))
+        self.timers["io_write"] += time.perf_counter() - t_io0
         self.selected_frames.append(sel)
         self.dft_count += 1
 
