@@ -113,10 +113,10 @@ DEAL can be run either with a command-line tool (`deal`) or using the python cla
 deal --file traj.xyz --threshold 0.1
 ```
 
-or run in incremental mode by targeting a number of selected frames (this will decrease the threshold at each iteration):
+or run in incremental mode by targeting a number of selected frames:
 
 ```bash
-deal --file traj.xyz --max-selected 50
+deal --file traj.xyz --max 50
 ```
 
 DEAL will automatically:

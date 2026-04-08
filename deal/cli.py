@@ -26,11 +26,13 @@ def parse_args():
         help="GP uncertainty threshold that triggers selection.",
     )
     parser.add_argument(
+        "--max",
         "--max-selected",
         type=int,
         dest="max_selected",
         help=(
-            "Target number of selected configurations."
+            "Target number of selected configurations "
+            "(alias: --max-selected). "
             "Mutually exclusive with --threshold."
         ),
     )
