@@ -78,7 +78,6 @@ class DEAL:
                     f"Expected DataConfig for data_cfg, got {type(data_cfg)}."
                 )
             self.data_cfg = data_cfg
-            self.data_cfg.__post_init__()
             self.rng = np.random.default_rng(self.data_cfg.seed)
 
         if deal_changed:
@@ -87,7 +86,6 @@ class DEAL:
                     f"Expected DEALConfig for deal_cfg, got {type(deal_cfg)}."
                 )
             self.deal_cfg = deal_cfg
-            self.deal_cfg.__post_init__()
 
         if flare_changed:
             if not isinstance(flare_cfg, FlareConfig):
@@ -127,33 +125,9 @@ class DEAL:
         return copied
 
     def _frames(self):
-        """Generator over all frames, optionally shuffled, with
-        atoms.info['frame'] containing the original global index."""
-
-        if not self.data_cfg.shuffle:
-            # Streaming, non-shuffled mode
-            global_idx = 0
-            for atoms in self.data_cfg.atoms_list or []:
-                at = self._copy_atoms_with_results(atoms)
-                at.info["frame"] = global_idx
-                global_idx += 1
-                yield at
-            return
-
-        # --- Shuffling mode: load all frames first ---
-        frames = []
-        global_idx = 0
-
+        """Generator over frames prepared in DataConfig."""
         for atoms in self.data_cfg.atoms_list or []:
-            at = self._copy_atoms_with_results(atoms)
-            at.info["frame"] = global_idx
-            frames.append(at)
-            global_idx += 1
-
-        self.rng.shuffle(frames)
-
-        for at in frames:
-            yield at
+            yield self._copy_atoms_with_results(atoms)
 
     def _get_species(self):
         """
@@ -577,8 +551,8 @@ class DEAL:
         """Keep a copy of the selected ASE frame for writing to XYZ."""
         sel = ase_frame.copy()
         sel.info["step"] = step
-        if "frame" not in sel.info:
-            sel.info["frame"] = step
+        if "original_frame" not in sel.info:
+            sel.info["original_frame"] = step
         sel.info["threshold"] = self.deal_cfg.threshold
         sel.info["target_atoms"] = np.array(target_atoms, dtype=int)
         t_io0 = time.perf_counter()

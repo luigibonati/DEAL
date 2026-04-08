@@ -6,6 +6,7 @@ from numbers import Real
 
 from ase import Atoms
 from ase.io import iread
+import numpy as np
 
 
 @dataclass
@@ -49,11 +50,21 @@ class DataConfig:
             self.files = None
 
         if self.atoms_list is not None:
+            self.atoms_list = list(self.atoms_list)
             for i, atoms in enumerate(self.atoms_list):
                 if not isinstance(atoms, Atoms):
                     raise TypeError(
                         f"DataConfig.atoms_list[{i}] is not an ASE Atoms object."
                     )
+
+            # Remember global indices for downstream filtering/selection.
+            if not all("original_frame" in atoms.info for atoms in self.atoms_list):
+                for i, atoms in enumerate(self.atoms_list):
+                    atoms.info["original_frame"] = i
+
+            if self.shuffle:
+                rng = np.random.default_rng(self.seed)
+                rng.shuffle(self.atoms_list)
 
 
 @dataclass

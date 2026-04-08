@@ -130,14 +130,14 @@ deal -c input.yaml
 ```yaml
 data:
   files: ["traj.xyz"]     # can be a single file or a list of files
-  format: "extxyz"        # file format (e.g. extxyz, xyz, ...)
-  index: ":"              # frame selection (e.g. ":", "0:100", [0,10,20]) [see ASE notation]
-  shuffle: false          # whether to shuffle the frames before processing (suggested true for MD data)
+  #format: "extxyz"        # file format (e.g. extxyz, xyz, ...)
+  index: ":"              # frame selection [see ASE notation]
+  shuffle: false          # whether to shuffle the frames before processing 
   seed: 42
 
 deal:
   threshold: 0.1         #can be a single value or a list of values
-  update_threshold: 0.08 # if not set it is chosen as 0.8 * threshold 
+  #update_threshold: 0.08 # if not set it is chosen as 0.8 * threshold 
   max_atoms_added: 0.2    # limit the number of selected environments added per configuration (can be int (number of atoms) float (0,1) (fraction of total atoms), or -1 (no limit)
   initial_atoms: none     # specify which atoms to use for GP initialization (list, fraction or number. Default: none, 1 atom per species)
   output_prefix: deal    # prefix for output files (threshold will be appended as suffix)
@@ -196,8 +196,7 @@ In both cases the following file is generated (with the default `output_prefix=d
 1. **`deal_selected.xyz` – selected frames** 
 
 Contains the atomic configurations where the GP uncertainty exceeded the threshold.
-Includes atoms.info["frame"] indicating the original trajectory index.
-
+Includes atoms.info["original_frame"] indicating the original trajectory index.
 If `save_gp: true`, DEAL also writes:
 2. **`deal_flare.json` – final GP model**
 
