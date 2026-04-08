@@ -1,9 +1,7 @@
 data:
   files: "../b_preselection/traj-preselection.xyz"
-  format: extxyz
   index: ":"
   shuffle: false          # already shuffled in preselection step
-  seed: 42
 
 deal:
   threshold:                     # can be a single value or a list 

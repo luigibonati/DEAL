@@ -1,19 +1,13 @@
 data:
-  files: "a_input/fcu.xyz"       # can be a single value or a list             
-  format: extxyz               # format of the input file
+  files: "a_input/fcu.xyz"     # can be a single value or a list             
   index: ":"                   # frames to consider during file reading (see ASE notation)  
   shuffle: true                # shuffle the data before selection -> useful to de-correlate frames if they come from a MD trajectory
 
 deal:
-  threshold:                   # can be a single value or a list 
-  - 0.05
-  - 0.10
-  - 0.15
-  - 0.20
+  threshold: 0.15              # can be a single value or a list 
   max_atoms_added: 0.15        # can be int (number of atoms) or float (0,1) (fraction of total atoms). Default: -1 (no limit)
   initial_atoms: 0.2           # use up to 20% of the atoms of each species for GP initialization
-  output_prefix: "b_selection/deal"   # prefix for output files (threshold will be appended as suffix)
-  verbose: true                # allowed values: true/false/"debug" (default: false)
-
+  output_prefix: "b_selection/deal_0.15"   # prefix for output files (threshold will be appended as suffix)
+  
 flare:
   cutoff: 4.5
