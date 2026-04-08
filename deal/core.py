@@ -126,7 +126,7 @@ class DEAL:
 
     def _frames(self):
         """Generator over frames prepared in DataConfig."""
-        for atoms in self.data_cfg.atoms_list or []:
+        for atoms in self.data_cfg.images or []:
             yield self._copy_atoms_with_results(atoms)
 
     def _get_species(self):
@@ -134,7 +134,7 @@ class DEAL:
         Detect species automatically using the DataConfig instance.
         Reads only the first available frame.
         """
-        for atoms in self.data_cfg.atoms_list or []:
+        for atoms in self.data_cfg.images or []:
             return sorted(set(atoms.get_atomic_numbers().tolist()))
         raise ValueError("Could not detect species: no input frames available.")
 

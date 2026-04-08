@@ -18,10 +18,6 @@ max_selected = 50
 Path(deal_folder).mkdir(parents=True, exist_ok=True)
 traj_input = read(traj_input_file, ":")
 
-if 'original_frame' not in traj_input[0].info:
-    for i,atoms in enumerate(traj_input):
-        atoms.info['original_frame'] = i
-
 # ------------------------
 # incremental DEAL loop
 # ------------------------
@@ -44,12 +40,12 @@ for iter, deal_threshold in enumerate(thresholds):
             verbose=False,
             save_full_trajectory=True
         )
-        data_cfg = DataConfig(atoms_list=traj_input)
+        data_cfg = DataConfig(images=traj_input)
         flare_cfg = FlareConfig()
         deal = DEAL(data_cfg, deal_cfg, flare_cfg)
     else:
         # update input and threshold without rebuilding the SGP
-        data_cfg = DataConfig(atoms_list=traj_new)
+        data_cfg = DataConfig(images=traj_new)
         #deal_cfg.threshold = deal_threshold
         deal_cfg = DEALConfig(
             threshold=deal_threshold,

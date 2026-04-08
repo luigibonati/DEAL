@@ -13,7 +13,7 @@ import numpy as np
 class DataConfig:
     # --- data / trajectory ---
     files: Optional[str | List[str]] = None
-    atoms_list: Optional[List[Atoms]] = None
+    images: Optional[List[Atoms]] = None
     format: Optional[str] = None
     index: str = ":"  # ASE selection string
     colvar: Optional[List[str]] = None
@@ -21,10 +21,10 @@ class DataConfig:
     seed: int = 24
 
     def __repr__(self) -> str:
-        n_frames = len(self.atoms_list) if self.atoms_list is not None else 0
+        n_frames = len(self.images) if self.images is not None else 0
         formulas = set()
-        if self.atoms_list:
-            for atoms in self.atoms_list:
+        if self.images:
+            for atoms in self.images:
                 try:
                     formulas.add(atoms.get_chemical_formula())
                 except Exception:
@@ -52,16 +52,16 @@ class DataConfig:
 
         if self.files is not None and len(self.files) == 0:
             self.files = None
-        if self.atoms_list is not None and len(self.atoms_list) == 0:
-            self.atoms_list = None
+        if self.images is not None and len(self.images) == 0:
+            self.images = None
 
-        if self.files is not None and self.atoms_list is not None:
+        if self.files is not None and self.images is not None:
             raise ValueError(
-                "Provide exactly one of 'files' or 'atoms_list' in DataConfig."
+                "Provide exactly one of 'files' or 'images' in DataConfig."
             )
-        if self.files is None and self.atoms_list is None:
+        if self.files is None and self.images is None:
             raise ValueError(
-                "Provide exactly one of 'files' or 'atoms_list' in DataConfig."
+                "Provide exactly one of 'files' or 'images' in DataConfig."
             )
 
         if self.files is not None:
@@ -72,25 +72,25 @@ class DataConfig:
                 )
             if len(loaded_atoms) == 0:
                 raise ValueError("DataConfig does not contain any frames.")
-            self.atoms_list = loaded_atoms
+            self.images = loaded_atoms
             self.files = None
 
-        if self.atoms_list is not None:
-            self.atoms_list = list(self.atoms_list)
-            for i, atoms in enumerate(self.atoms_list):
+        if self.images is not None:
+            self.images = list(self.images)
+            for i, atoms in enumerate(self.images):
                 if not isinstance(atoms, Atoms):
                     raise TypeError(
-                        f"DataConfig.atoms_list[{i}] is not an ASE Atoms object."
+                        f"DataConfig.images[{i}] is not an ASE Atoms object."
                     )
 
             # Remember global indices for downstream filtering/selection.
-            if not all("original_frame" in atoms.info for atoms in self.atoms_list):
-                for i, atoms in enumerate(self.atoms_list):
+            if not all("original_frame" in atoms.info for atoms in self.images):
+                for i, atoms in enumerate(self.images):
                     atoms.info["original_frame"] = i
 
             if self.shuffle:
                 rng = np.random.default_rng(self.seed)
-                rng.shuffle(self.atoms_list)
+                rng.shuffle(self.images)
 
 
 @dataclass

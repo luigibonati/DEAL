@@ -46,9 +46,9 @@ python incremental_DEAL.py
 
 How it works:
 
-- `DataConfig` is created from in-memory `atoms_list` (no temporary `input_iter*.xyz` files).
 - `DEAL` is initialized once (first iteration).
 - At each following iteration, `configure_run(data_cfg=..., deal_cfg=...)` updates the threshold and the input set (remaining, not-yet-selected frames) without rebuilding the SGP.
+- The subsequent `DataConfig` is created from in-memory `images` using the non-selected frames.
 - A single output prefix is used: `b_selection/deal`.
 
 Output files:
