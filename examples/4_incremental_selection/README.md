@@ -33,7 +33,9 @@ Customize the parameters in the file `incremental_DEAL.py`:
 # ------------------------
 traj_input_file = "a_input/shuffled.xyz"
 deal_folder = "b_selection"
-max_selected = 50
+max_iterations = 5
+max_selected = 16
+threshold_factor = 0.75
 ```
 
 Run it!
@@ -42,26 +44,34 @@ Run it!
 python incremental_DEAL.py
 ```
 
-This will produce files with prefix `deal_selected_iter[i]_` inside the `deal_folder`. At the end of each iteration, the selected structures are moved at the beginning of the new input file, and DEAL is re-run with a lower threshold to select more and more structures until `max_selected` is reached. Example output:
+How it works:
+
+- `DataConfig` is created from in-memory `atoms_list` (no temporary `input_iter*.xyz` files).
+- `DEAL` is initialized once (first iteration).
+- At each following iteration, `configure_run(data_cfg=..., deal_cfg=...)` updates the threshold and the input set (remaining, not-yet-selected frames) without rebuilding the SGP.
+- A single output prefix is used: `b_selection/deal`.
+
+Output files:
+
+- `b_selection/deal_selected.xyz`: cumulative selected frames across iterations.
+- `b_selection/deal_trajectory_uncertainty.xyz`: trajectory with per-frame atomic uncertainty (if `save_full_trajectory=True`).
+
+The loop stops when either:
+
+- `len(frames_selected) >= max_selected`, or
+- all frames have already been selected.
+
+Example output:
 
 ```raw 
 ITERATION 0 (threshold: 0.75)
-[DEAL] Examined:   200 | Selected:     7 | Speed:   0.10 s/step | Elapsed:    34.78 s
+[DEAL] Examined:    50 | Selected:     6 | Speed:   0.42 s/step | Elapsed:    30.01 s
 
-ITERATION 1 (threshold: 0.5)
-[DEAL] Examined:   200 | Selected:    14 | Speed:   0.18 s/step | Elapsed:    58.48 s
+ITERATION 1 (threshold: 0.562)
+[DEAL] Examined:    44 | Selected:     9 | Speed:   0.48 s/step | Elapsed:    29.41 s
 
-ITERATION 2 (threshold: 0.4)
-[DEAL] Examined:   200 | Selected:    21 | Speed:   0.12 s/step | Elapsed:   134.87 s
+ITERATION 2 (threshold: 0.422)
+[DEAL] Examined:    41 | Selected:    16 | Speed:   0.35 s/step | Elapsed:    56.98 s
 
-ITERATION 3 (threshold: 0.3)
-[DEAL] Examined:   200 | Selected:    26 | Speed:   0.26 s/step | Elapsed:   130.11 s
-
-ITERATION 4 (threshold: 0.2)
-[DEAL] Examined:   200 | Selected:    38 | Speed:   0.39 s/step | Elapsed:   238.08 s
-
-ITERATION 5 (threshold: 0.15)
-[DEAL] Examined:   200 | Selected:    51 | Speed:   0.25 s/step | Elapsed:   399.52 s
-
-Stopping loop: (selected = 51 >= max_selected = 50)
+Stopping loop: (selected = 16 >= max_selected = 16)
 ```
