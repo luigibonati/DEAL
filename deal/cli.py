@@ -2,7 +2,8 @@ import argparse
 import sys
 import yaml
 
-from .core import DataConfig, DEALConfig, FlareConfig, DEAL
+from .config import DataConfig, DEALConfig, FlareConfig
+from .core import DEAL
 
 
 def parse_args():
