@@ -96,8 +96,6 @@ cd DEAL
 pip install .
 ```
 
-
-
 ---
 
 ##  Usage
@@ -216,7 +214,7 @@ If `save_gp: true`, DEAL also writes:
 If `save_full_trajectory: true`, DEAL also writes:
 3. **`deal_trajectory_uncertainty.xyz` – full trajectory with uncertainties**
 
-Contains all processed frames with:
+They both contain:
 - per-atom array `atomic_uncertainty` (saved in `atoms.arrays`)
 - frame scalar `max_atomic_uncertainty` (saved in `atoms.info`)
 
@@ -320,7 +318,7 @@ Some tips:
 - The uncertainty values are unitless, and range between 0 and 1. Lower threshold means more selected structures; higher threshold, fewer selections. 
 - A good starting point is around 0.1. As a rule of thumb, homogeneous, condensed and/or crystalline systems tend to have fewer different local environments and require smaller thresholds (<<0.1), whereas heterogeneous systems may require larger ones (>0.1). This is also connected with the number of species (more species -> higher treshold required).
 - Try a few values and compare how many structures are selected; distributions often are very similar across thresholds, what changes is the number of structures. One can decide based on the computational budget (for DFT calculations).
-- A practical strategy is to perform **incremental selection**: start with a high threshold, then decrease it progressively until a target number of structures is reached.
+- A practical strategy is to perform **incremental selection**: start with a high threshold, then decrease it progressively until a target number of structures is reached (see Example 4).
 - Use chemiscope/OVITO to visualize the selected structures and identify which environments triggered selection. 
 
 Note: the training time scales unfavorably with the number of samples. For a large dataset, it is advised to divide it in chuncks and run DEAL separately on each of them, and then performing a second DEAL selection on the output structures. 
