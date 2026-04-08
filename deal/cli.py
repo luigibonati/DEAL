@@ -66,7 +66,7 @@ def _run_incremental_cli(
             break
 
         deal_threshold = np.round(threshold_factor ** (iteration + 1),3)
-        print(f"\n[DEAL] Iteration {iteration} (threshold: {deal_threshold})")
+        print(f"\n[DEAL] Iteration {iteration+1} (threshold: {deal_threshold})")
 
         run_deal_dict = dict(deal_dict)
         run_deal_dict["threshold"] = deal_threshold
