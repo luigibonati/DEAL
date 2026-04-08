@@ -98,6 +98,9 @@ class DEALConfig:
     # --- selection parameters ---
     threshold: float = 1.0
     update_threshold: Optional[float] = None
+    max_selected: Optional[int] = None
+    max_iterations: int = 10
+    threshold_factor: float = 0.75
 
     max_atoms_added: Optional[float | int] = 0.2
     # max_atoms_added can be:
@@ -119,7 +122,7 @@ class DEALConfig:
 
     # --- output ---
     output_prefix: str = "deal"
-    verbose: bool | str = True  # allowed values: true/false/"debug" (default: false)
+    verbose: bool | str = False  # allowed values: true/false/"debug" (default: false)
     save_gp: bool = False
     save_full_trajectory: bool = False
     debug: bool = False  # internal debug flag
@@ -131,6 +134,36 @@ class DEALConfig:
                 f"'threshold' must be a scalar float/int, got {type(self.threshold)}."
             )
         self.threshold = float(self.threshold)
+
+        if self.max_selected is not None:
+            if isinstance(self.max_selected, bool) or not isinstance(
+                self.max_selected, int
+            ):
+                raise TypeError(
+                    "'max_selected' must be an int > 0 or None, "
+                    f"got {type(self.max_selected)}."
+                )
+            if self.max_selected <= 0:
+                raise ValueError(
+                    f"'max_selected' must be > 0, got {self.max_selected}."
+                )
+
+        if isinstance(self.max_iterations, bool) or not isinstance(
+            self.max_iterations, int
+        ):
+            raise TypeError(
+                f"'max_iterations' must be an int >= 1, got {type(self.max_iterations)}."
+            )
+        if self.max_iterations < 1:
+            raise ValueError(
+                f"'max_iterations' must be >= 1, got {self.max_iterations}."
+            )
+
+        self.threshold_factor = float(self.threshold_factor)
+        if not (0 < self.threshold_factor < 1):
+            raise ValueError(
+                f"'threshold_factor' must be in (0, 1), got {self.threshold_factor}."
+            )
 
         if self.update_threshold is not None and not isinstance(
             self.update_threshold, Real

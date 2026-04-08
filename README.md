@@ -38,9 +38,10 @@ A short practical [introduction](DEAL.md) describes the main ingredients (SGP, l
   - [With a YAML config file](#with-a-yaml-config-file)
   - [Python usage](#python-usage)
   - [Output files](#output-files)
-  - [Create a chemiscope file](#create-a-chemiscope-file)
   - [Multiple thresholds](#multiple-thresholds)
-- 🎛️ [Choice of the parameters](#choice-of-the-parameters)
+  - [Incremental selection (CLI)](#incremental-selection-cli)
+  - [Create a chemiscope file](#create-a-chemiscope-file)
+  - 🎛️ [Choice of the parameters](#choice-of-the-parameters)
 
 ---
 
@@ -95,8 +96,6 @@ cd DEAL
 pip install .
 ```
 
-
-
 ---
 
 ##  Usage
@@ -110,6 +109,12 @@ DEAL can be run either with a command-line tool (`deal`) or using the python cla
 
 ```bash
 deal --file traj.xyz --threshold 0.1
+```
+
+or run in incremental mode by targeting a number of selected frames:
+
+```bash
+deal --file traj.xyz --max 50
 ```
 
 DEAL will automatically:
@@ -131,24 +136,29 @@ deal -c input.yaml
 data:
   files: ["traj.xyz"]     # can be a single file or a list of files
   #format: "extxyz"        # file format (e.g. extxyz, xyz, ...)
-  index: ":"              # frame selection [see ASE notation]
-  shuffle: false          # whether to shuffle the frames before processing 
-  seed: 42
+  #index: ":"              # frame selection [see ASE notation]
+  #shuffle: false          # whether to shuffle the frames before processing 
+  #seed: 42
 
 deal:
-  threshold: 0.1         #can be a single value or a list of values
-  #update_threshold: 0.08 # if not set it is chosen as 0.8 * threshold 
+  threshold: 0.1           standard mode: scalar or list of values
+  # OR
+  #max_selected: 50       # incremental mode: mutually exclusive with `threshold`
+  #max_iterations: 10     # max iterations for incremental mode
+  #threshold_factor: 0.75 # threshold_i = threshold_factor**(i+1)
+  
+  update_threshold: 0.08 # if not set it is chosen as 0.8 * threshold 
   max_atoms_added: 0.2    # limit the number of selected environments added per configuration (can be int (number of atoms) float (0,1) (fraction of total atoms), or -1 (no limit)
   initial_atoms: none     # specify which atoms to use for GP initialization (list, fraction or number. Default: none, 1 atom per species)
-  output_prefix: deal    # prefix for output files (threshold will be appended as suffix)
+  output_prefix: deal     # prefix for output files (threshold will be appended as suffix)
   force_only: true
-  train_hyps: false      # whether to re-train hyperparameters at each iteration (slower) 
-  verbose: true          # allowed values: true/false/"debug" (default: true)
+  train_hyps: false       # whether to re-train hyperparameters at each iteration (slower) 
+  verbose: true           # allowed values: true/false/"debug" (default: true)
   save_gp: false
   save_full_trajectory: false  # if true, writes <prefix>_trajectory_uncertainty.xyz with per-atom array "atomic_uncertainty"
 
 flare_calc:
-  gp: SGP_Wrapper        # (see flare's documentation)
+  gp: SGP_Wrapper         # (see flare's documentation)
   kernels:
     - name: NormalizedDotProduct
       sigma: 2 
@@ -165,6 +175,7 @@ flare_calc:
 One can also use a base config file and override via CLI the options:
 ```bash
 deal -c input.yaml -t 0.15
+deal -c input.yaml --max-selected 50
 ```
 
 ### Python Usage
@@ -203,9 +214,49 @@ If `save_gp: true`, DEAL also writes:
 If `save_full_trajectory: true`, DEAL also writes:
 3. **`deal_trajectory_uncertainty.xyz` – full trajectory with uncertainties**
 
-Contains all processed frames with:
+They both contain:
 - per-atom array `atomic_uncertainty` (saved in `atoms.arrays`)
 - frame scalar `max_atomic_uncertainty` (saved in `atoms.info`)
+
+### Multiple thresholds
+
+If the CLI receives a list of thresholds, DEAL will run once per threshold
+(standard mode only).
+```yaml
+deal:
+  threshold:
+    - 0.10
+    - 0.15
+    - 0.20
+```
+
+Equivalent behaviour in Python:
+
+```python
+for thr in [0.10, 0.15, 0.20]:
+    deal_cfg.threshold = thr
+    deal_cfg.output_prefix = f"run_thr{thr}"
+    DEAL(data_cfg, deal_cfg, flare_cfg).run()
+```
+
+### Incremental selection (CLI)
+
+Use incremental mode when you want to select up to a target number of structures.
+
+```yaml
+deal:
+  max_selected: 50
+  max_iterations: 10
+  threshold_factor: 0.75
+```
+
+At each iteration `i` (starting from 1), the threshold is decreased as:
+
+`threshold_i = threshold_factor**i`
+
+The run stops when one of these conditions is met: either selected structures reach `max_selected` or `max_iterations` is reached.
+
+Note: `threshold` and `max_selected` are mutually exclusive in the CLI.
 
 ### Create a chemiscope file
 
@@ -233,25 +284,6 @@ chemiscope.show_input('deal_chemiscope.json.gz')
 ```
 See also the Chemiscope [documentation](https://chemiscope.org/docs/).
 
-### Multiple thresholds
-
-If the CLI receives a list of thresholds, DEAL will run once per threshold.
-```yaml
-deal:
-  threshold:
-    - 0.10
-    - 0.15
-    - 0.20
-```
-
-Equivalent behaviour in Python:
-
-```python
-for thr in [0.10, 0.15, 0.20]:
-    deal_cfg.threshold = thr
-    deal_cfg.output_prefix = f"run_thr{thr}"
-    DEAL(data_cfg, deal_cfg, flare_cfg).run()
-```
 
 ## 🎛️ Choice of the parameters
 
@@ -286,7 +318,7 @@ Some tips:
 - The uncertainty values are unitless, and range between 0 and 1. Lower threshold means more selected structures; higher threshold, fewer selections. 
 - A good starting point is around 0.1. As a rule of thumb, homogeneous, condensed and/or crystalline systems tend to have fewer different local environments and require smaller thresholds (<<0.1), whereas heterogeneous systems may require larger ones (>0.1). This is also connected with the number of species (more species -> higher treshold required).
 - Try a few values and compare how many structures are selected; distributions often are very similar across thresholds, what changes is the number of structures. One can decide based on the computational budget (for DFT calculations).
-- A practical strategy is to perform **incremental selection**: start with a high threshold, then decrease it progressively until a target number of structures is reached (see example #4).
-- Use chemiscope to inspect selected structures and identify which environments triggered selection. 
+- A practical strategy is to perform **incremental selection**: start with a high threshold, then decrease it progressively until a target number of structures is reached (see Example 4).
+- Use chemiscope/OVITO to visualize the selected structures and identify which environments triggered selection. 
 
 Note: the training time scales unfavorably with the number of samples. For a large dataset, it is advised to divide it in chuncks and run DEAL separately on each of them, and then performing a second DEAL selection on the output structures. 

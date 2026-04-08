@@ -213,19 +213,13 @@ class DEAL:
         return np.full(n_atoms, np.nan, dtype=float)
 
     def _store_full_trajectory_frame(
-        self, step: int, ase_frame, atomic_uncertainty: np.ndarray
+        self, step: int, ase_frame
     ) -> None:
         """Store one frame of the full trajectory with atomic uncertainty array."""
         if not self.deal_cfg.save_full_trajectory:
             return
         frame = ase_frame.copy()
         frame.info["step"] = step
-        frame.arrays["atomic_uncertainty"] = np.asarray(atomic_uncertainty, dtype=float)
-        frame.info["max_atomic_uncertainty"] = (
-            float(np.nanmax(atomic_uncertainty))
-            if np.any(np.isfinite(atomic_uncertainty))
-            else float("nan")
-        )
         write(f"{self.deal_cfg.output_prefix}_trajectory_uncertainty.xyz", frame, append=(step != 0))
 
     # ------------------------------------------------------------------
@@ -299,10 +293,16 @@ class DEAL:
             atoms.calc = self.flare_calc
             _ = atoms.get_forces()  # triggers GP eval and stores stds internally
             atomic_uncertainty = self._extract_atomic_uncertainty(atoms, len(atoms))
+            ase_frame.arrays["atomic_uncertainty"] = atomic_uncertainty
+            ase_frame.info["max_atomic_uncertainty"] = (
+                float(np.nanmax(atomic_uncertainty))
+                if np.any(np.isfinite(atomic_uncertainty))
+                else float("nan")
+            )
 
             if self.deal_cfg.save_full_trajectory:
                 t_io0 = time.perf_counter()
-                self._store_full_trajectory_frame(step, ase_frame, atomic_uncertainty)
+                self._store_full_trajectory_frame(step, ase_frame)
                 self.timers["io_write"] += time.perf_counter() - t_io0
 
             max_atom_added = (
