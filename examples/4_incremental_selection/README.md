@@ -1,8 +1,7 @@
 ## Incremental selection 
 
-Incremental selection means running DEAL in multiple iterations with progressively
-lower thresholds, so you can stop when a target number of selected structures is
-reached instead of picking a single threshold upfront. 
+In addition to the standard mode which requires to specify a threshold, one can also run in an incremental mode, that is, running DEAL in multiple iterations with progressively
+lower thresholds, so you can stop when a target number of selected structures is reached instead of picking a single threshold upfront. 
 
 ### Run incremental DEAL with CLI
 
@@ -14,28 +13,7 @@ Run directly with defaults (`max_iterations=10`, with a decay `threshold_factor=
 deal --file input/input_fcu.xyz.gz --max-selected 50
 ```
 
-If you want to customize the settings, save the YAML below as `input.yaml` and run:
-
-```yaml
-data:
-  files: "input/input_fcu.xyz.gz"
-  shuffle: true
-  seed: 42
-
-deal:
-  max_selected: 50
-  max_iterations: 10
-  threshold_factor: 0.75
-  output_prefix: "deal_incremental"
-```
-
-and run: 
-
-```bash
-deal -c input.yaml
-```
-
-### Output example
+**Output example**
 ```
 [DEAL] Running in incremental mode with max_selected = 50.
 
@@ -64,6 +42,29 @@ deal -c input.yaml
 [DEAL] New selected: 16 
 
 [DEAL] Stopping incremental mode: max_selected is reached.
+```
+
+### Customize input
+
+If you want to customize the settings, create a YAML file `input.yaml`:
+
+```yaml
+data:
+  files: "input/input_fcu.xyz.gz"
+  shuffle: true
+  seed: 42
+
+deal:
+  max_selected: 50
+  max_iterations: 10
+  threshold_factor: 0.75
+  output_prefix: "deal_incremental"
+```
+
+and run: 
+
+```bash
+deal -c input.yaml
 ```
 
 ### Deprecated Python script
