@@ -7,10 +7,10 @@ from deal import DataConfig, DEALConfig, FlareConfig, DEAL
 # ------------------------
 # user parameters
 # ------------------------
-traj_input_file = "a_input/shuffled.xyz"
+traj_input_file = "input/fcu_ev5.xyz.gz"
 deal_folder = "b_selection"
 max_iterations = 10
-max_selected = 50
+max_selected = 20
 
 # ------------------------
 # setup
@@ -36,7 +36,7 @@ for iter, deal_threshold in enumerate(thresholds):
             threshold=deal_threshold,
             max_atoms_added=0.15,
             initial_atoms=0.2,
-            output_prefix=f"{deal_folder}/deal",
+            output_prefix=f"{deal_folder}/deal_{deal_threshold}",
             verbose=False,
             save_full_trajectory=True
         )
@@ -46,12 +46,11 @@ for iter, deal_threshold in enumerate(thresholds):
     else:
         # update input and threshold without rebuilding the SGP
         data_cfg = DataConfig(images=traj_new)
-        #deal_cfg.threshold = deal_threshold
         deal_cfg = DEALConfig(
             threshold=deal_threshold,
             max_atoms_added=0.15,
             initial_atoms=0.2,
-            output_prefix=f"{deal_folder}/deal",
+            output_prefix=f"{deal_folder}/deal_{deal_threshold}",
             verbose=False,
             save_full_trajectory=True
         )
@@ -82,3 +81,54 @@ for iter, deal_threshold in enumerate(thresholds):
     if len(traj_new) == 0:
         print("\nStopping loop: all input frames were selected.")
         break
+
+# ------------------------
+# Plot selection results
+# ------------------------
+
+import matplotlib.pyplot as plt
+import glob
+
+files = glob.glob(f"{deal_folder}/deal_*_trajectory_uncertainty.xyz")
+
+trajectories = {}
+for file in files:
+    threshold = file.split("/")[-1].split("_")[1]
+    trajectories[float(threshold)] = {
+        "trajectory": read(file, index=":"),
+        "max_uncertainty": [atoms.info['max_atomic_uncertainty'] for atoms in read(file, index=":")]
+    }
+
+thresholds = sorted(trajectories.keys(), reverse=True)
+trajectories[max(thresholds)]["max_uncertainty"][0] = 1
+
+# Plot
+fig, axs = plt.subplots(
+    len(thresholds),
+    1,
+    sharex=True,
+    sharey=True,
+    figsize=(5.5, 1.5 * len(thresholds)),
+    gridspec_kw={"hspace": 0},
+    dpi=100
+)
+axs = np.atleast_1d(axs)
+
+for i, th in enumerate(thresholds):
+    frames = np.array([atoms.info["original_frame"] for atoms in trajectories[th]["trajectory"]])
+    max_unc = np.array(trajectories[th]["max_uncertainty"])
+    mask = max_unc > th
+
+    axs[i].plot(frames, max_unc)
+    axs[i].axhline(th, color="red", linestyle="--", label=f"threshold={th}")
+    axs[i].scatter(frames[mask], max_unc[mask], color="orange", marker="*", s=120, zorder=3)
+    axs[i].margins(x=0)
+    axs[i].legend(frameon=False, loc="upper right", ncol=2)
+    if i % 2 == 0:
+        axs[i].set_ylabel("Max Uncertainty")
+
+axs[-1].set_xlim(0,200)
+axs[-1].set_xlabel("original_frame")
+fig.suptitle('Incremental DEAL selection')
+plt.tight_layout()
+plt.savefig(f"incremental_DEAL_selection.png", dpi=300, bbox_inches='tight' )
