@@ -1,9 +1,9 @@
 from ase.io import read,write
 from mace.calculators import MACECalculator
-from tqdm import tqdm
+from tqdm.auto import tqdm
 import numpy as np
 from copy import copy
-import torch
+
 
 import argparse
 parser = argparse.ArgumentParser()
@@ -28,8 +28,18 @@ traj = read(args.file, index=f'::{args.stride}')
 print(f"INFO   | read {args.file} ({len(traj)})")
 
 # MODEL
-calc = MACECalculator(model_paths=args.model,device='cuda',
+try:
+    calc = MACECalculator(model_paths=args.model,device='cuda',
+                        model_type=args.type, enable_cueq=True)
+    print("TYPE   | cuEquivariance activated")
+
+except Exception as e:
+    print(f"WARNING| cuEquivariance not available: {e}")
+    calc = MACECalculator(model_paths=args.model,device='cuda',
                         model_type=args.type)
+    print("TYPE   | cuEquivariance not available")
+
+
 print(f"TYPE   | model loaded ({calc})")
 
 # EVALUATE
@@ -37,6 +47,10 @@ for atoms in tqdm(traj):
     calc.calculate(atoms)
     atoms.calc = copy(calc)
 
+    # remove constraints --> ase bug in extxyz writing
+    if not hasattr(atoms.constraints, "dtype"):
+        atoms.constraints = None
+    
     if calc.num_models>1:
         # |mean| and std forces over commitee
         fmod = np.abs(calc.results['forces'])
@@ -44,6 +58,7 @@ for atoms in tqdm(traj):
         # calculate variance as maximum per atom component
         var = np.amax(fstd,axis=1,keepdims=True)
         atoms.set_array('force_std_comp_max', var.flatten())
+        atoms.calc.results.pop('energies', None)
 
 # WRITE OUTPUT
 write(args.outfile,traj)

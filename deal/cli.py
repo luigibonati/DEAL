@@ -46,6 +46,7 @@ def _run_incremental_cli(
     max_selected = deal_dict.get("max_selected")
     max_iterations = deal_dict.get("max_iterations", 10)
     threshold_factor = deal_dict.get("threshold_factor", 0.75)
+    rng = np.random.default_rng(data_cfg.seed) # use same seed for shuffling at each iteration
 
     print(f"[DEAL] Running in incremental mode with max_selected = {max_selected}.")
 
@@ -63,6 +64,9 @@ def _run_incremental_cli(
             if atoms.info.get("original_frame") not in selected_frames
         ]
 
+        if iteration != 0:
+            rng.shuffle(remaining_images) # shuffle remaining frames to avoid bias from frame ordering during incremental selection
+            
         if len(remaining_images) == 0:
             print("\n[DEAL] Stopping incremental mode: all input frames were selected.")
             break

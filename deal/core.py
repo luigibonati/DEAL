@@ -212,6 +212,73 @@ class DEAL:
 
         return np.full(n_atoms, np.nan, dtype=float)
 
+    def _get_uncertainty_preselection_mask(self, ase_frame) -> Optional[np.ndarray]:
+        """Return a boolean mask from an input per-atom uncertainty array."""
+        if self.deal_cfg.uncertainty_key is None:
+            return None
+
+        key = self.deal_cfg.uncertainty_key
+        if key not in ase_frame.arrays:
+            raise RuntimeError(
+                f"Frame is missing per-atom uncertainty array '{key}'. "
+                "Disable 'uncertainty_key' or provide it in the input trajectory."
+            )
+
+        values = np.asarray(ase_frame.arrays[key], dtype=float)
+        n_atoms = len(ase_frame)
+        if values.shape[0] != n_atoms:
+            raise RuntimeError(
+                f"Per-atom uncertainty array '{key}' has incompatible shape "
+                f"{values.shape}; expected first dimension {n_atoms}."
+            )
+        if values.ndim == 1:
+            per_atom = values
+        else:
+            per_atom = np.nanmax(values.reshape(n_atoms, -1), axis=1)
+
+        return per_atom > self.deal_cfg.uncertainty_threshold
+
+    def _apply_uncertainty_preselection(
+        self, atomic_uncertainty: np.ndarray, mask: Optional[np.ndarray]
+    ) -> np.ndarray:
+        """Mark atoms excluded by external preselection with the configured value."""
+        if mask is None:
+            return atomic_uncertainty
+        filtered = atomic_uncertainty.copy()
+        filtered[~mask] = self.deal_cfg.uncertainty_rejected_value
+        return filtered
+
+    @staticmethod
+    def _filter_atoms_by_mask(
+        atom_indices: Sequence[int], mask: Optional[np.ndarray]
+    ) -> List[int]:
+        if mask is None:
+            return list(atom_indices)
+        return [idx for idx in atom_indices if 0 <= idx < len(mask) and mask[idx]]
+
+    def _select_preselected_target_atoms(self, atoms, mask: np.ndarray):
+        """Select target atoms using only atoms that pass external preselection."""
+        threshold = self.deal_cfg.threshold
+        update_threshold = self.deal_cfg.update_threshold
+        candidate_atoms = np.flatnonzero(mask)
+        if len(candidate_atoms) == 0:
+            return True, []
+
+        max_stds = {}
+        for atom_index in candidate_atoms:
+            max_stds[int(atom_index)] = float(np.max(atoms.stds[atom_index]))
+
+        sorted_atoms = sorted(candidate_atoms.tolist(), key=lambda idx: max_stds[idx])
+        target_atoms = [
+            atom_index
+            for atom_index in sorted_atoms
+            if max_stds[atom_index] > update_threshold
+        ]
+        std_in_bound = max_stds[sorted_atoms[-1]] <= threshold
+        if std_in_bound:
+            target_atoms = []
+        return std_in_bound, target_atoms
+
     def _store_full_trajectory_frame(
         self, step: int, ase_frame
     ) -> None:
@@ -235,6 +302,33 @@ class DEAL:
             dt = time.perf_counter() - t0
             self.timers["extract_dft"] += dt
 
+            preselection_mask = self._get_uncertainty_preselection_mask(ase_frame)
+            can_bootstrap_without_preselection = (
+                len(self.gp.training_data) == 0
+                and not self.deal_cfg.uncertainty_filter_initial_atoms
+            )
+            if (
+                preselection_mask is not None
+                and not np.any(preselection_mask)
+                and not can_bootstrap_without_preselection
+            ):
+                ase_frame.arrays["atomic_uncertainty"] = np.full(
+                    len(ase_frame),
+                    self.deal_cfg.uncertainty_rejected_value,
+                    dtype=float,
+                )
+                ase_frame.info["max_atomic_uncertainty"] = (
+                    self.deal_cfg.uncertainty_rejected_value
+                )
+                if self.deal_cfg.save_full_trajectory:
+                    t_io0 = time.perf_counter()
+                    self._store_full_trajectory_frame(step, ase_frame)
+                    self.timers["io_write"] += time.perf_counter() - t_io0
+                elapsed = time.perf_counter() - self.timers["start"]
+                step_time = time.perf_counter() - step_start
+                self._print_progress(step, elapsed, step_time)
+                continue
+
             # 2) Convert to FLARE_Atoms for SGP calculations & uncertainties
             atoms = FLARE_Atoms.from_ase_atoms(ase_frame)
 
@@ -243,13 +337,20 @@ class DEAL:
             if len(self.gp.training_data) == 0:
                 t_up0 = time.perf_counter()
                 init_frame = True
+                init_preselection_mask = (
+                    preselection_mask
+                    if self.deal_cfg.uncertainty_filter_initial_atoms
+                    else None
+                )
                 if self.deal_cfg.debug:
                     sys.stdout.write(
                         "\r"
                         + f"[DEBUG] : step {step+1} : Initializing GP with first frame\n"
                     )
                 if isinstance(self.deal_cfg.initial_atoms, list):
-                    init_atoms = self.deal_cfg.initial_atoms
+                    init_atoms = self._filter_atoms_by_mask(
+                        self.deal_cfg.initial_atoms, init_preselection_mask
+                    )
                 else:
                     unique_species = sorted(set(atoms.get_atomic_numbers().tolist()))
                     idx_species = {sp: [] for sp in unique_species}
@@ -257,9 +358,15 @@ class DEAL:
                         idx_species[sp] = [
                             i for i, at in enumerate(atoms) if at.number == sp
                         ]
+                        idx_species[sp] = self._filter_atoms_by_mask(
+                            idx_species[sp], init_preselection_mask
+                        )
                         self.rng.shuffle(
                             idx_species[sp]
                         )  # indices of this species randomly shuffle
+                    unique_species = [
+                        sp for sp in unique_species if len(idx_species[sp]) > 0
+                    ]
 
                     if self.deal_cfg.initial_atoms is None:  # use 1 atom per species
                         init_atoms = [idx_species[sp][0] for sp in unique_species]
@@ -274,6 +381,23 @@ class DEAL:
                                     )
                                 )
                             ]
+                if init_preselection_mask is not None and len(init_atoms) == 0:
+                    ase_frame.arrays["atomic_uncertainty"] = np.full(
+                        len(ase_frame),
+                        self.deal_cfg.uncertainty_rejected_value,
+                        dtype=float,
+                    )
+                    ase_frame.info["max_atomic_uncertainty"] = (
+                        self.deal_cfg.uncertainty_rejected_value
+                    )
+                    if self.deal_cfg.save_full_trajectory:
+                        t_io0 = time.perf_counter()
+                        self._store_full_trajectory_frame(step, ase_frame)
+                        self.timers["io_write"] += time.perf_counter() - t_io0
+                    elapsed = time.perf_counter() - self.timers["start"]
+                    step_time = time.perf_counter() - step_start
+                    self._print_progress(step, elapsed, step_time)
+                    continue
                 if self.deal_cfg.debug:
                     sys.stdout.write(
                         "\r"
@@ -293,6 +417,9 @@ class DEAL:
             atoms.calc = self.flare_calc
             _ = atoms.get_forces()  # triggers GP eval and stores stds internally
             atomic_uncertainty = self._extract_atomic_uncertainty(atoms, len(atoms))
+            atomic_uncertainty = self._apply_uncertainty_preselection(
+                atomic_uncertainty, preselection_mask
+            )
             ase_frame.arrays["atomic_uncertainty"] = atomic_uncertainty
             ase_frame.info["max_atomic_uncertainty"] = (
                 float(np.nanmax(atomic_uncertainty))
@@ -310,13 +437,30 @@ class DEAL:
                 if isinstance(self.deal_cfg.max_atoms_added, int)
                 else int(np.ceil(self.deal_cfg.max_atoms_added * len(atoms)))
             )
-            std_in_bound, target_atoms = is_std_in_bound(
+            std_in_bound_all, target_atoms_all = is_std_in_bound(
                 self.deal_cfg.threshold * -1,  # threshold = - std_tolerance_factor
                 self.gp.force_noise,
                 atoms,
                 update_style="threshold",
                 update_threshold=self.deal_cfg.update_threshold,
             )
+            if preselection_mask is None:
+                std_in_bound = std_in_bound_all
+                target_atoms = target_atoms_all
+            else:
+                std_in_bound, preselected_target_atoms = (
+                    self._select_preselected_target_atoms(atoms, preselection_mask)
+                )
+                if self.deal_cfg.uncertainty_filter_update_atoms:
+                    target_atoms = preselected_target_atoms
+                elif std_in_bound:
+                    target_atoms = []
+                else:
+                    target_atoms = [
+                        idx
+                        for idx in target_atoms_all
+                        if 0 <= idx < len(preselection_mask)
+                    ]
             if (
                 0 < max_atom_added < len(target_atoms)
             ):  # only keep up to max_atoms_added atoms

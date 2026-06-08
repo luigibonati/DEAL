@@ -151,6 +151,11 @@ deal:
   
   update_threshold: none # if not set it is chosen as 0.8 * threshold 
   max_atoms_added: 0.2    # limit the number of selected environments added per configuration (can be int (number of atoms) float (0,1) (fraction of total atoms), or -1 (no limit)
+  #uncertainty_key: force_std_comp_max # optional per-atom array used for preselection
+  #uncertainty_threshold: 0.05         # only atoms with uncertainty_key > this value can be selected/added
+  #uncertainty_rejected_value: -1      # atomic_uncertainty value written for atoms below the preselection threshold
+  #uncertainty_filter_initial_atoms: false # keep initial GP bootstrap unchanged by default
+  #uncertainty_filter_update_atoms: true   # if false, external uncertainty gates frames but GP updates can use all GP-target atoms
   initial_atoms: none     # specify which atoms to use for GP initialization (list, fraction or number. Default: none, 1 atom per species)
   output_prefix: deal     # prefix for output files
   force_only: true
@@ -266,6 +271,21 @@ They both contain:
 - per-atom array `atomic_uncertainty` (saved in `atoms.arrays`)
 - frame scalar `max_atomic_uncertainty` (saved in `atoms.info`)
 
+If `deal.uncertainty_key` and `deal.uncertainty_threshold` are set, DEAL first
+reads the named per-atom uncertainty array from the input trajectory. After the
+initial GP bootstrap, only atoms with values above `uncertainty_threshold` are
+allowed to trigger selection. With the default
+`uncertainty_filter_update_atoms: true`, the same mask is also applied to atoms
+added to the GP. If this causes many one-atom updates, setting
+`uncertainty_filter_update_atoms: false` keeps the external uncertainty as a
+frame-selection gate while allowing selected frames to update the GP with all
+SGP-target atoms; this is usually faster when GP updates dominate runtime. Atoms
+below the external threshold are still written with `uncertainty_rejected_value`
+in the output `atomic_uncertainty` array (default: `-1`). Frames with no atoms
+above the external threshold are skipped, except when the first frame is needed
+to initialize the GP. Set `uncertainty_filter_initial_atoms: true` to apply the
+same filter also to the initial GP bootstrap atoms.
+
 ### Create a chemiscope file
 
 After running `deal`, one can create a chemiscope visualization file with:
@@ -316,6 +336,10 @@ Local environments are characterized via the Atomic Cluster Expansion formalism 
   threshold: 0.1
   update_threshold: 0.08  # if not set it is chosen as 0.8 * threshold      
   max_atoms_added: -1 # no limit on the number of selected environment of a given configuration to the GP.
+  uncertainty_key: force_std_comp_max # optional per-atom uncertainty array for preselection
+  uncertainty_threshold: 0.05 # only atoms above this external uncertainty are considered
+  uncertainty_filter_initial_atoms: false # keep initial GP bootstrap unchanged
+  uncertainty_filter_update_atoms: true # set false to gate frames but update GP with all SGP-target atoms
   initial_atoms: 0.15 # use up to 15% of the atoms (of each species) for GP initialization
 ```      
 

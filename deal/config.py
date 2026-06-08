@@ -110,6 +110,17 @@ class DEALConfig:
     #
     min_steps_with_model: int = 0  # frames between two selections
 
+    uncertainty_key: Optional[str] = None
+    uncertainty_threshold: Optional[float] = None
+    uncertainty_rejected_value: float = -1.0
+    uncertainty_filter_initial_atoms: bool = False
+    uncertainty_filter_update_atoms: bool = True
+    # Optional per-atom preselection from an uncertainty array already stored in
+    # the input trajectory. When enabled, only atoms with
+    # arrays[uncertainty_key] > uncertainty_threshold can trigger selection.
+    # If uncertainty_filter_update_atoms is true, the same mask is applied to
+    # atoms added to the GP from selected frames.
+
     initial_atoms: Optional[List[int] | float] = None
     # atoms to use for initial training. Allowed values:
     #   - list of atom indices
@@ -157,6 +168,40 @@ class DEALConfig:
         if self.max_iterations < 1:
             raise ValueError(
                 f"'max_iterations' must be >= 1, got {self.max_iterations}."
+            )
+
+        has_uncertainty_key = self.uncertainty_key is not None
+        has_uncertainty_threshold = self.uncertainty_threshold is not None
+        if has_uncertainty_key != has_uncertainty_threshold:
+            raise ValueError(
+                "'uncertainty_key' and 'uncertainty_threshold' must be set together."
+            )
+        if has_uncertainty_key and not isinstance(self.uncertainty_key, str):
+            raise TypeError(
+                f"'uncertainty_key' must be a string or None, got {type(self.uncertainty_key)}."
+            )
+        if has_uncertainty_threshold:
+            if not isinstance(self.uncertainty_threshold, Real):
+                raise TypeError(
+                    "'uncertainty_threshold' must be a scalar float/int or None, "
+                    f"got {type(self.uncertainty_threshold)}."
+                )
+            self.uncertainty_threshold = float(self.uncertainty_threshold)
+        if not isinstance(self.uncertainty_rejected_value, Real):
+            raise TypeError(
+                "'uncertainty_rejected_value' must be a scalar float/int, "
+                f"got {type(self.uncertainty_rejected_value)}."
+            )
+        self.uncertainty_rejected_value = float(self.uncertainty_rejected_value)
+        if not isinstance(self.uncertainty_filter_initial_atoms, bool):
+            raise TypeError(
+                "'uncertainty_filter_initial_atoms' must be a bool, "
+                f"got {type(self.uncertainty_filter_initial_atoms)}."
+            )
+        if not isinstance(self.uncertainty_filter_update_atoms, bool):
+            raise TypeError(
+                "'uncertainty_filter_update_atoms' must be a bool, "
+                f"got {type(self.uncertainty_filter_update_atoms)}."
             )
 
         self.threshold_factor = float(self.threshold_factor)
