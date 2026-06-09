@@ -336,11 +336,11 @@ Local environments are characterized via the Atomic Cluster Expansion formalism 
   threshold: 0.1
   update_threshold: 0.08  # if not set it is chosen as 0.8 * threshold      
   max_atoms_added: -1 # no limit on the number of selected environment of a given configuration to the GP.
-  uncertainty_key: force_std_comp_max # optional per-atom uncertainty array for preselection
-  uncertainty_threshold: 0.05 # only atoms above this external uncertainty are considered
-  uncertainty_filter_initial_atoms: false # keep initial GP bootstrap unchanged
-  uncertainty_filter_update_atoms: true # set false to gate frames but update GP with all SGP-target atoms
   initial_atoms: 0.15 # use up to 15% of the atoms (of each species) for GP initialization
+  # uncertainty_key: force_std_comp_max # optional per-atom uncertainty array for preselection
+  # uncertainty_threshold: 0.05 # only atoms above this external uncertainty are considered
+  # uncertainty_filter_initial_atoms: false # keep initial GP bootstrap unchanged
+  # uncertainty_filter_update_atoms: true # set false to gate frames but update GP with all SGP-target atoms
 ```      
 
 The`threshold` parameter in the DEAL configuration controls when a local environment is flagged by the SGP’s predictive variance (normalized by the noise hyperparameter). If any environment exceeds the threshold, the GP is updated and that environment (plus any others above `update_threshold`, up to `max_atoms_added`) is added. 
