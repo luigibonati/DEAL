@@ -1,3 +1,7 @@
+[build-system]
+requires = ["scikit-build-core", "pybind11"]
+build-backend = "scikit_build_core.build"
+
 [project]
 name = "deal"
 version = "2.1.0"
@@ -32,4 +36,10 @@ deal-chemiscope = "deal.chemiscope_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["deal"]
+include = ["deal*"]
+
+[tool.scikit-build]
+wheel.packages = ["deal"]
+cmake.args = [
+    "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
+]
