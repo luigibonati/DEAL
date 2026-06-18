@@ -25,7 +25,13 @@ class SGP_Calculator(Calculator):
         self.mgp_model = None
 
     # TODO: Figure out why this is called twice per MD step.
-    def calculate(self, atoms=None, properties=None, system_changes=all_changes):
+    def calculate(
+        self,
+        atoms=None,
+        properties=None,
+        system_changes=all_changes,
+        atom_indices=None,
+    ):
         """
         Calculate properties including: energy, local energies, forces,
             stress, uncertainties.
@@ -52,16 +58,23 @@ class SGP_Calculator(Calculator):
             self.gp_model.descriptor_calculators,
         )
 
-        self.predict_on_structure(structure_descriptor)
+        self.predict_on_structure(structure_descriptor, atom_indices=atom_indices)
 
-    def predict_on_structure(self, structure_descriptor):
+    def predict_on_structure(self, structure_descriptor, atom_indices=None):
         # Predict on structure.
         if self.gp_model.variance_type == "SOR":
             self.gp_model.sparse_gp.predict_SOR(structure_descriptor)
         elif self.gp_model.variance_type == "DTC":
             self.gp_model.sparse_gp.predict_DTC(structure_descriptor)
         elif self.gp_model.variance_type == "local":
-            self.gp_model.sparse_gp.predict_local_uncertainties(structure_descriptor)
+            if atom_indices is None:
+                self.gp_model.sparse_gp.predict_local_uncertainties(
+                    structure_descriptor
+                )
+            else:
+                self.gp_model.sparse_gp.predict_local_uncertainties(
+                    structure_descriptor, list(atom_indices)
+                )
 
         # Set results.
         self.results["energy"] = deepcopy(structure_descriptor.mean_efs[0])
@@ -107,7 +120,10 @@ class SGP_Calculator(Calculator):
         # TODO: Generalize this variance type to multiple descriptors.
         elif self.gp_model.variance_type == "local":
             variances = structure_descriptor.local_uncertainties[0]
-            sorted_variances = sort_variances(structure_descriptor, variances)
+            if atom_indices is None:
+                sorted_variances = sort_variances(structure_descriptor, variances)
+            else:
+                sorted_variances = variances
             stds = np.zeros(len(sorted_variances))
             for n in range(len(sorted_variances)):
                 var = sorted_variances[n]

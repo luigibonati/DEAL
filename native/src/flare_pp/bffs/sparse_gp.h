@@ -60,6 +60,9 @@ public:
                                   const std::vector<int> &n_added);
   std::vector<Eigen::VectorXd>
   compute_cluster_uncertainties(const Structure &structure);
+  std::vector<Eigen::VectorXd>
+  compute_cluster_uncertainties(const Structure &structure,
+                                const std::vector<int> atom_indices);
   std::vector<std::vector<int>>
   sort_clusters_by_uncertainty(const Structure &structure);
 
@@ -75,6 +78,8 @@ public:
   void predict_SOR(Structure &structure);
   void predict_DTC(Structure &structure);
   void predict_local_uncertainties(Structure &structure);
+  void predict_local_uncertainties(Structure &structure,
+                                   const std::vector<int> atom_indices);
 
   void compute_likelihood_stable();
   double compute_likelihood_gradient_stable(bool precomputed_KnK = false);

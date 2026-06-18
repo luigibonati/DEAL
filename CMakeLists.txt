@@ -7,9 +7,6 @@ project(deal_sgp LANGUAGES CXX)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/CMakeModules/)
 
-include(ExternalProject)
-include(FetchContent)
-
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -22,30 +19,16 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-FetchContent_Declare(json
-    GIT_REPOSITORY https://github.com/ArthurSonzogni/nlohmann_json_cmake_fetchcontent
-    SOURCE_DIR ${CMAKE_CURRENT_BINARY_DIR}/External/json
-    GIT_TAG v3.9.1)
-FetchContent_GetProperties(json)
-FetchContent_Populate(json)
-add_subdirectory(${json_SOURCE_DIR} ${json_BINARY_DIR})
-include_directories(${json_SOURCE_DIR})
-
-ExternalProject_Add(
-    eigen_project
-    SOURCE_DIR "${CMAKE_BINARY_DIR}/External/Eigen3"
-    URL "https://github.com/eigenteam/eigen-git-mirror/archive/3.3.7.tar.gz"
-    URL_HASH MD5=77a2c934eaf35943c43ee600a83b72df
-    CONFIGURE_COMMAND ""
-    BUILD_COMMAND ""
-    INSTALL_COMMAND ""
-)
-ExternalProject_Get_Property(eigen_project SOURCE_DIR)
-add_library(Eigen3 INTERFACE)
-target_include_directories(Eigen3 SYSTEM INTERFACE ${SOURCE_DIR})
-include_directories(${SOURCE_DIR})
+if(DEFINED ENV{CONDA_PREFIX})
+  include_directories($ENV{CONDA_PREFIX}/include)
+  list(PREPEND CMAKE_PREFIX_PATH "$ENV{CONDA_PREFIX}")
+  set(CMAKE_LIBRARY_PATH "$ENV{CONDA_PREFIX}/lib")
+  set(CMAKE_INCLUDE_PATH "$ENV{CONDA_PREFIX}/include")
+endif()
 
 set(PYBIND11_FINDPYTHON ON)
+find_package(Eigen3 CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 find_package(pybind11 CONFIG REQUIRED)
 
 set(DEAL_SGP_SOURCES
@@ -79,21 +62,17 @@ include_directories(
 
 add_library(deal_sgp_native STATIC ${DEAL_SGP_SOURCES})
 set_target_properties(deal_sgp_native PROPERTIES POSITION_INDEPENDENT_CODE ON)
-add_dependencies(deal_sgp_native eigen_project)
-target_link_libraries(deal_sgp_native PUBLIC nlohmann_json::nlohmann_json)
+target_link_libraries(
+  deal_sgp_native
+  PUBLIC
+    Eigen3::Eigen
+    nlohmann_json::nlohmann_json)
 
 if(NOT DEFINED ENV{NO_OMP})
     find_package(OpenMP)
     if(OpenMP_CXX_FOUND)
         target_link_libraries(deal_sgp_native PUBLIC OpenMP::OpenMP_CXX)
     endif()
-endif()
-
-if(DEFINED ENV{CONDA_PREFIX})
-  include_directories($ENV{CONDA_PREFIX}/include)
-  set(CMAKE_PREFIX_PATH "$ENV{CONDA_PREFIX}")
-  set(CMAKE_LIBRARY_PATH "$ENV{CONDA_PREFIX}/lib")
-  set(CMAKE_INCLUDE_PATH "$ENV{CONDA_PREFIX}/include")
 endif()
 
 if(NOT DEFINED ENV{NO_LAPACK})

@@ -75,9 +75,17 @@ class DealActiveLearningModel:
 
         return np.full(n_atoms, np.nan, dtype=float)
 
-    def predict_uncertainty(self, atoms) -> np.ndarray:
+    def predict_uncertainty(
+        self, atoms, candidate_atoms: Optional[Sequence[int]] = None
+    ) -> np.ndarray:
         atoms.calc = self.calculator
-        _ = atoms.get_forces()
+        if candidate_atoms is None:
+            _ = atoms.get_forces()
+        else:
+            self.calculator.calculate(
+                atoms=atoms,
+                atom_indices=[int(idx) for idx in candidate_atoms],
+            )
         return self.extract_atomic_uncertainty(atoms, len(atoms))
 
     def select_atoms_by_uncertainty(

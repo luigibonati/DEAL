@@ -174,7 +174,10 @@ PYBIND11_MODULE(_C_deal_sgp, m) {
       .def("predict_SOR", &SparseGP::predict_SOR)
       .def("predict_DTC", &SparseGP::predict_DTC)
       .def("predict_local_uncertainties",
-           &SparseGP::predict_local_uncertainties)
+           py::overload_cast<Structure &>(&SparseGP::predict_local_uncertainties))
+      .def("predict_local_uncertainties",
+           py::overload_cast<Structure &, const std::vector<int>>(
+               &SparseGP::predict_local_uncertainties))
       .def("add_all_environments", &SparseGP::add_all_environments)
       .def("add_specific_environments", &SparseGP::add_specific_environments)
       .def("add_random_environments", &SparseGP::add_random_environments)
@@ -196,7 +199,12 @@ PYBIND11_MODULE(_C_deal_sgp, m) {
       .def("precompute_KnK", &SparseGP::precompute_KnK)
       .def("write_mapping_coefficients", &SparseGP::write_mapping_coefficients)
       .def_readonly("varmap_coeffs", &SparseGP::varmap_coeffs) // for debugging and unit test
-      .def("compute_cluster_uncertainties", &SparseGP::compute_cluster_uncertainties) // for debugging and unit test
+      .def("compute_cluster_uncertainties",
+           py::overload_cast<const Structure &>(
+               &SparseGP::compute_cluster_uncertainties)) // for debugging and unit test
+      .def("compute_cluster_uncertainties",
+           py::overload_cast<const Structure &, const std::vector<int>>(
+               &SparseGP::compute_cluster_uncertainties)) // for debugging and unit test
       .def("write_varmap_coefficients", &SparseGP::write_varmap_coefficients)
       .def("write_sparse_descriptors", &SparseGP::write_sparse_descriptors)
       .def("write_L_inverse", &SparseGP::write_L_inverse)

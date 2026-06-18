@@ -1,0 +1,27 @@
+name: deal
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - cmake>=3.18
+  - ninja
+  - scikit-build-core
+  - pybind11
+  - nlohmann_json
+  - eigen
+  - c-compiler
+  - cxx-compiler
+  - llvm-openmp
+  - liblapacke
+  - openblas
+  - numpy>=1.18,<1.23
+  - scipy
+  - pyyaml
+  - ase=3.22.0
+  - pandas
+  - ipykernel
+  - pytest
+  - pytest-mock
+  - chemiscope
+  - nptyping

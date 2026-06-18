@@ -361,8 +361,17 @@ class DEAL:
 
             # 3) Predict with SGP and compute uncertainties
             t_pred0 = time.perf_counter()
-            atomic_uncertainty = self.model.predict_uncertainty(atoms)
-            atomic_uncertainty = self._apply_candidate_mask(atomic_uncertainty, candidate_mask)
+            candidate_atoms = (
+                np.flatnonzero(candidate_mask).astype(int).tolist()
+                if candidate_mask is not None
+                else None
+            )
+            atomic_uncertainty = self.model.predict_uncertainty(
+                atoms, candidate_atoms=candidate_atoms
+            )
+            atomic_uncertainty = self._apply_candidate_mask(
+                atomic_uncertainty, candidate_mask
+            )
             ase_frame.arrays["atomic_uncertainty"] = atomic_uncertainty
             ase_frame.info["max_atomic_uncertainty"] = (
                 float(np.nanmax(atomic_uncertainty))

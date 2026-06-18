@@ -132,6 +132,85 @@ SparseGP ::compute_cluster_uncertainties(const Structure &structure) {
   return variances;
 }
 
+std::vector<Eigen::VectorXd> SparseGP ::compute_cluster_uncertainties(
+    const Structure &structure, const std::vector<int> atom_indices) {
+
+  if ((atom_indices.size() == 0) ||
+      ((atom_indices.size() == 1) && (atom_indices[0] == -1))) {
+    return compute_cluster_uncertainties(structure);
+  }
+
+  std::vector<std::vector<std::vector<int>>> cluster_indices;
+  for (int i = 0; i < structure.descriptors.size(); i++) {
+    int n_types = structure.descriptors[i].n_types;
+    std::vector<std::vector<int>> indices_by_type;
+    for (int j = 0; j < n_types; j++) {
+      int n_clusters = structure.descriptors[i].n_clusters_by_type[j];
+      std::vector<int> type_indices;
+      for (int k = 0; k < n_clusters; k++) {
+        int atom_index = structure.descriptors[i].atom_indices[j](k);
+        for (int l = 0; l < atom_indices.size(); l++) {
+          if (atom_index == atom_indices[l]) {
+            type_indices.push_back(k);
+            break;
+          }
+        }
+      }
+      indices_by_type.push_back(type_indices);
+    }
+    cluster_indices.push_back(indices_by_type);
+  }
+
+  std::vector<ClusterDescriptor> cluster_descriptors;
+  for (int i = 0; i < structure.descriptors.size(); i++) {
+    ClusterDescriptor cluster_descriptor =
+        ClusterDescriptor(structure.descriptors[i], cluster_indices[i]);
+    cluster_descriptors.push_back(cluster_descriptor);
+  }
+
+  std::vector<Eigen::VectorXd> variances;
+  int sparse_count = 0;
+  for (int i = 0; i < n_kernels; i++) {
+    Eigen::VectorXd full_variance =
+        Eigen::VectorXd::Constant(structure.noa, -1.0);
+    int n_selected_clusters = cluster_descriptors[i].n_clusters;
+
+    int n_clusters = sparse_descriptors[i].n_clusters;
+    Eigen::MatrixXd L_inverse_block =
+        L_inv.block(sparse_count, sparse_count, n_clusters, n_clusters);
+    sparse_count += n_clusters;
+
+    if (n_selected_clusters > 0) {
+      Eigen::VectorXd K_self =
+          (kernels[i]
+               ->envs_envs(cluster_descriptors[i], cluster_descriptors[i],
+                           kernels[i]->kernel_hyperparameters))
+              .diagonal();
+
+      Eigen::MatrixXd sparse_kernel =
+          kernels[i]->envs_envs(cluster_descriptors[i], sparse_descriptors[i],
+                                kernels[i]->kernel_hyperparameters);
+
+      Eigen::MatrixXd Q1 = L_inverse_block * sparse_kernel.transpose();
+      Eigen::VectorXd selected_variance = K_self - (Q1.transpose() * Q1).diagonal();
+
+      int variance_index = 0;
+      for (int j = 0; j < cluster_indices[i].size(); j++) {
+        for (int k = 0; k < cluster_indices[i][j].size(); k++) {
+          int cluster_index = cluster_indices[i][j][k];
+          int atom_index = structure.descriptors[i].atom_indices[j](cluster_index);
+          full_variance(atom_index) = selected_variance(variance_index);
+          variance_index += 1;
+        }
+      }
+    }
+
+    variances.push_back(full_variance);
+  }
+
+  return variances;
+}
+
 void SparseGP ::add_specific_environments(const Structure &structure,
                                           const std::vector<int> atoms) {
 
@@ -720,6 +799,28 @@ void SparseGP ::predict_local_uncertainties(Structure &test_structure) {
     compute_cluster_uncertainties(test_structure);
   test_structure.local_uncertainties = local_uncertainties;
 
+}
+
+void SparseGP ::predict_local_uncertainties(Structure &test_structure,
+                                            const std::vector<int> atom_indices) {
+  int n_atoms = test_structure.noa;
+  int n_out = 1 + 3 * n_atoms + 6;
+
+  Eigen::MatrixXd kernel_mat = Eigen::MatrixXd::Zero(n_sparse, n_out);
+  int count = 0;
+  for (int i = 0; i < Kuu_kernels.size(); i++) {
+    int size = Kuu_kernels[i].rows();
+    kernel_mat.block(count, 0, size, n_out) = kernels[i]->envs_struc(
+        sparse_descriptors[i], test_structure.descriptors[i],
+        kernels[i]->kernel_hyperparameters);
+    count += size;
+  }
+
+  test_structure.mean_efs = kernel_mat.transpose() * alpha;
+
+  std::vector<Eigen::VectorXd> local_uncertainties =
+      compute_cluster_uncertainties(test_structure, atom_indices);
+  test_structure.local_uncertainties = local_uncertainties;
 }
 
 void SparseGP ::compute_likelihood_stable() {
