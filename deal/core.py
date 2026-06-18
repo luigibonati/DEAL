@@ -12,7 +12,7 @@ from ase import Atoms
 from ase.io import write
 from ase.calculators.singlepoint import SinglePointCalculator
 
-from .config import DataConfig, DEALConfig, FlareConfig
+from .config import DataConfig, DEALConfig, SGPConfig
 from .model import DealActiveLearningModel
 
 
@@ -28,21 +28,21 @@ class DEAL:
 
     Outputs:
         <output_prefix>_selected.xyz
-        <output_prefix>_flare.json
+        <output_prefix>_sgp.json
     """
 
     def __init__(
-        self, data_cfg: DataConfig, deal_cfg: DEALConfig, flare_cfg: FlareConfig
+        self, data_cfg: DataConfig, deal_cfg: DEALConfig, sgp_cfg: SGPConfig
     ):
 
         # Configure using provided config objects
-        self.configure_run(data_cfg, deal_cfg, flare_cfg)
+        self.configure_run(data_cfg, deal_cfg, sgp_cfg)
 
         if self.deal_cfg.verbose:
             print("[INFO] Configurations:")
             print("-", pformat(self.data_cfg))
             print("-", pformat(self.deal_cfg))
-            print("-", pformat(self.flare_cfg),"\n")
+            print("-", pformat(self.sgp_cfg),"\n")
 
         # Timing accumulation
         self.timers = {
@@ -59,15 +59,15 @@ class DEAL:
         self,
         data_cfg: Optional[DataConfig] = None,
         deal_cfg: Optional[DEALConfig] = None,
-        flare_cfg: Optional[FlareConfig] = None,
+        sgp_cfg: Optional[SGPConfig] = None,
     ) -> None:
         """
         Setup configuration objects when provided.
-        SGP is rebuilt only when flare_cfg is provided.
+        SGP is rebuilt only when sgp_cfg is provided.
         """
         data_changed = data_cfg is not None
         deal_changed = deal_cfg is not None
-        flare_changed = flare_cfg is not None
+        sgp_changed = sgp_cfg is not None
 
         if data_changed:
             if not isinstance(data_cfg, DataConfig):
@@ -84,26 +84,26 @@ class DEAL:
                 )
             self.deal_cfg = deal_cfg
 
-        if flare_changed:
-            if not isinstance(flare_cfg, FlareConfig):
+        if sgp_changed:
+            if not isinstance(sgp_cfg, SGPConfig):
                 raise TypeError(
-                    f"Expected FlareConfig for flare_cfg, got {type(flare_cfg)}."
+                    f"Expected SGPConfig for sgp_cfg, got {type(sgp_cfg)}."
                 )
-            self.flare_cfg = flare_cfg
+            self.sgp_cfg = sgp_cfg
 
-        if data_changed and not flare_changed and self.flare_cfg.species is not None:
+        if data_changed and not sgp_changed and self.sgp_cfg.species is not None:
             data_species = self._get_species()
-            if data_species != sorted(self.flare_cfg.species):
+            if data_species != sorted(self.sgp_cfg.species):
                 raise ValueError(
-                    "Input species changed but FLARE model was not rebuilt. "
-                    "Pass flare_cfg to configure_run to rebuild SGP."
+                    "Input species changed but the SGP model was not rebuilt. "
+                    "Pass sgp_cfg to configure_run to rebuild SGP."
                 )
 
-        if flare_changed:
-            if self.flare_cfg.species is None:
-                self.flare_cfg.species = self._get_species()
-            self.model = DealActiveLearningModel(self.flare_cfg)
-            self.flare_calc = self.model.calculator
+        if sgp_changed:
+            if self.sgp_cfg.species is None:
+                self.sgp_cfg.species = self._get_species()
+            self.model = DealActiveLearningModel(self.sgp_cfg)
+            self.sgp_calc = self.model.calculator
             self.kernels = self.model.kernels
             self.gp = self.model.gp
             self.selected_frames = []
@@ -172,40 +172,38 @@ class DEAL:
         sys.stdout.write("\r" + msg)
         sys.stdout.flush()
 
-    def _get_uncertainty_preselection_mask(self, ase_frame) -> Optional[np.ndarray]:
-        """Return a boolean mask from an input per-atom uncertainty array."""
-        if self.deal_cfg.uncertainty_key is None:
+    def _get_candidate_mask(self, ase_frame) -> Optional[np.ndarray]:
+        """Return a boolean candidate mask from the configured frame array."""
+        if self.deal_cfg.mask is False:
             return None
 
-        key = self.deal_cfg.uncertainty_key
+        key = "deal_mask" if self.deal_cfg.mask is True else self.deal_cfg.mask
         if key not in ase_frame.arrays:
             raise RuntimeError(
-                f"Frame is missing per-atom uncertainty array '{key}'. "
-                "Disable 'uncertainty_key' or provide it in the input trajectory."
+                f"Frame is missing per-atom mask array '{key}'. "
+                "Set 'mask: false' to use all atoms or prepare/provide the mask array."
             )
 
-        values = np.asarray(ase_frame.arrays[key], dtype=float)
+        values = np.asarray(ase_frame.arrays[key])
         n_atoms = len(ase_frame)
         if values.shape[0] != n_atoms:
             raise RuntimeError(
-                f"Per-atom uncertainty array '{key}' has incompatible shape "
+                f"Per-atom mask array '{key}' has incompatible shape "
                 f"{values.shape}; expected first dimension {n_atoms}."
             )
-        if values.ndim == 1:
-            per_atom = values
-        else:
-            per_atom = np.nanmax(values.reshape(n_atoms, -1), axis=1)
+        if values.ndim > 1:
+            values = np.nanmax(values.reshape(n_atoms, -1).astype(float), axis=1)
 
-        return per_atom > self.deal_cfg.uncertainty_threshold
+        return values.astype(bool)
 
-    def _apply_uncertainty_preselection(
+    def _apply_candidate_mask(
         self, atomic_uncertainty: np.ndarray, mask: Optional[np.ndarray]
     ) -> np.ndarray:
-        """Mark atoms excluded by external preselection with the configured value."""
+        """Mark atoms excluded by a candidate mask as ineligible."""
         if mask is None:
             return atomic_uncertainty
         filtered = atomic_uncertainty.copy()
-        filtered[~mask] = self.deal_cfg.uncertainty_rejected_value
+        filtered[~mask] = -1.0
         return filtered
 
     @staticmethod
@@ -216,8 +214,8 @@ class DEAL:
             return list(atom_indices)
         return [idx for idx in atom_indices if 0 <= idx < len(mask) and mask[idx]]
 
-    def _select_preselected_target_atoms(self, atoms, mask: np.ndarray):
-        """Select target atoms using only atoms that pass external preselection."""
+    def _select_masked_target_atoms(self, atoms, mask: np.ndarray):
+        """Select target atoms using only atoms that pass the candidate mask."""
         threshold = self.deal_cfg.threshold
         update_threshold = self.deal_cfg.update_threshold
         candidate_atoms = np.flatnonzero(mask)
@@ -262,24 +260,17 @@ class DEAL:
             dt = time.perf_counter() - t0
             self.timers["extract_dft"] += dt
 
-            preselection_mask = self._get_uncertainty_preselection_mask(ase_frame)
-            can_bootstrap_without_preselection = (
-                len(self.gp.training_data) == 0
-                and not self.deal_cfg.uncertainty_filter_initial_atoms
-            )
+            candidate_mask = self._get_candidate_mask(ase_frame)
             if (
-                preselection_mask is not None
-                and not np.any(preselection_mask)
-                and not can_bootstrap_without_preselection
+                candidate_mask is not None
+                and not np.any(candidate_mask)
             ):
                 ase_frame.arrays["atomic_uncertainty"] = np.full(
                     len(ase_frame),
-                    self.deal_cfg.uncertainty_rejected_value,
+                    -1.0,
                     dtype=float,
                 )
-                ase_frame.info["max_atomic_uncertainty"] = (
-                    self.deal_cfg.uncertainty_rejected_value
-                )
+                ase_frame.info["max_atomic_uncertainty"] = -1.0
                 if self.deal_cfg.save_full_trajectory:
                     t_io0 = time.perf_counter()
                     self._store_full_trajectory_frame(step, ase_frame)
@@ -289,7 +280,7 @@ class DEAL:
                 self._print_progress(step, elapsed, step_time)
                 continue
 
-            # 2) Convert to FLARE_Atoms for SGP calculations & uncertainties
+            # 2) Convert to SGP atoms for calculations & uncertainties
             atoms = self.model.to_model_atoms(ase_frame)
 
             # 2a) INITIALIZATION: if GP has no training data, use first frame
@@ -297,11 +288,7 @@ class DEAL:
             if len(self.gp.training_data) == 0:
                 t_up0 = time.perf_counter()
                 init_frame = True
-                init_preselection_mask = (
-                    preselection_mask
-                    if self.deal_cfg.uncertainty_filter_initial_atoms
-                    else None
-                )
+                init_candidate_mask = candidate_mask
                 if self.deal_cfg.debug:
                     sys.stdout.write(
                         "\r"
@@ -309,7 +296,7 @@ class DEAL:
                     )
                 if isinstance(self.deal_cfg.initial_atoms, list):
                     init_atoms = self._filter_atoms_by_mask(
-                        self.deal_cfg.initial_atoms, init_preselection_mask
+                        self.deal_cfg.initial_atoms, init_candidate_mask
                     )
                 else:
                     unique_species = sorted(set(atoms.get_atomic_numbers().tolist()))
@@ -319,7 +306,7 @@ class DEAL:
                             i for i, at in enumerate(atoms) if at.number == sp
                         ]
                         idx_species[sp] = self._filter_atoms_by_mask(
-                            idx_species[sp], init_preselection_mask
+                            idx_species[sp], init_candidate_mask
                         )
                         self.rng.shuffle(
                             idx_species[sp]
@@ -341,15 +328,13 @@ class DEAL:
                                     )
                                 )
                             ]
-                if init_preselection_mask is not None and len(init_atoms) == 0:
+                if init_candidate_mask is not None and len(init_atoms) == 0:
                     ase_frame.arrays["atomic_uncertainty"] = np.full(
                         len(ase_frame),
-                        self.deal_cfg.uncertainty_rejected_value,
+                        -1.0,
                         dtype=float,
                     )
-                    ase_frame.info["max_atomic_uncertainty"] = (
-                        self.deal_cfg.uncertainty_rejected_value
-                    )
+                    ase_frame.info["max_atomic_uncertainty"] = -1.0
                     if self.deal_cfg.save_full_trajectory:
                         t_io0 = time.perf_counter()
                         self._store_full_trajectory_frame(step, ase_frame)
@@ -377,9 +362,7 @@ class DEAL:
             # 3) Predict with SGP and compute uncertainties
             t_pred0 = time.perf_counter()
             atomic_uncertainty = self.model.predict_uncertainty(atoms)
-            atomic_uncertainty = self._apply_uncertainty_preselection(
-                atomic_uncertainty, preselection_mask
-            )
+            atomic_uncertainty = self._apply_candidate_mask(atomic_uncertainty, candidate_mask)
             ase_frame.arrays["atomic_uncertainty"] = atomic_uncertainty
             ase_frame.info["max_atomic_uncertainty"] = (
                 float(np.nanmax(atomic_uncertainty))
@@ -397,7 +380,7 @@ class DEAL:
                 if isinstance(self.deal_cfg.max_atoms_added, int)
                 else int(np.ceil(self.deal_cfg.max_atoms_added * len(atoms)))
             )
-            if preselection_mask is None:
+            if candidate_mask is None:
                 std_in_bound, target_atoms = self.model.select_atoms_by_uncertainty(
                     atoms,
                     threshold=self.deal_cfg.threshold,
@@ -408,10 +391,7 @@ class DEAL:
                     atoms,
                     threshold=self.deal_cfg.threshold,
                     update_threshold=self.deal_cfg.update_threshold,
-                    preselection_mask=preselection_mask,
-                    use_preselected_targets=(
-                        self.deal_cfg.uncertainty_filter_update_atoms
-                    ),
+                    candidate_mask=candidate_mask,
                 )
             if (
                 0 < max_atom_added < len(target_atoms)
@@ -474,11 +454,11 @@ class DEAL:
         if self.selected_frames and self.deal_cfg.save_gp:
             # Save final SGP model
             t_io0 = time.perf_counter()
-            self.model.write(f"{self.deal_cfg.output_prefix}_flare.json")
+            self.model.write(f"{self.deal_cfg.output_prefix}_sgp.json")
             self.timers["io_write"] += time.perf_counter() - t_io0
             if self.deal_cfg.verbose:
                 print(
-                    f"[OUTPUT] Saved GP model to {self.deal_cfg.output_prefix}_flare.json"
+                    f"[OUTPUT] Saved GP model to {self.deal_cfg.output_prefix}_sgp.json"
                 )
 
         if self.deal_cfg.save_full_trajectory and self.deal_cfg.verbose:

@@ -3,7 +3,7 @@ import sys
 import yaml
 import numpy as np
 
-from .config import DataConfig, DEALConfig, FlareConfig
+from .config import DataConfig, DEALConfig, SGPConfig
 from .core import DEAL
 
 
@@ -36,13 +36,28 @@ def parse_args():
             "Mutually exclusive with --threshold."
         ),
     )
+    parser.add_argument(
+        "--mask",
+        dest="mask",
+        help=(
+            "Candidate atom mask: false uses all atoms, true uses deal_mask, "
+            "or pass a per-atom array name."
+        ),
+    )
 
     return parser.parse_args()
 
 
-def _run_incremental_cli(
-    data_cfg: DataConfig, deal_dict: dict, flare_cfg: FlareConfig
-) -> None:
+def _parse_mask_arg(value: str):
+    lowered = value.lower()
+    if lowered in {"true", "yes", "1"}:
+        return True
+    if lowered in {"false", "no", "0"}:
+        return False
+    return value
+
+
+def _run_incremental_cli(data_cfg: DataConfig, deal_dict: dict, sgp_cfg: SGPConfig) -> None:
     max_selected = deal_dict.get("max_selected")
     max_iterations = deal_dict.get("max_iterations", 10)
     threshold_factor = deal_dict.get("threshold_factor", 0.75)
@@ -80,7 +95,7 @@ def _run_incremental_cli(
         data_iter_cfg = DataConfig(images=remaining_images, seed=data_cfg.seed)
 
         if iteration == 0:
-            deal = DEAL(data_iter_cfg, deal_cfg, flare_cfg)
+            deal = DEAL(data_iter_cfg, deal_cfg, sgp_cfg)
         else:
             deal.configure_run(data_cfg=data_iter_cfg, deal_cfg=deal_cfg)
 
@@ -130,10 +145,9 @@ def main() -> None:
             cfg_dict = yaml.safe_load(f) or {}
 
     # Initialize dicts if not available
-    for key in ["data", "deal", "flare"]:
+    for key in ["data", "deal", "sgp"]:
         if key not in cfg_dict:
             cfg_dict[key] = {}
-
     # Overwrite / fill from CLI options
     if args.filename is not None:
         cfg_dict["data"]["files"] = [args.filename]
@@ -141,6 +155,8 @@ def main() -> None:
         cfg_dict["deal"]["threshold"] = args.threshold
     if args.max_selected is not None:
         cfg_dict["deal"]["max_selected"] = args.max_selected
+    if args.mask is not None:
+        cfg_dict["deal"]["mask"] = _parse_mask_arg(args.mask)
 
     # Check file
     try:
@@ -151,9 +167,9 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # Build data/flare configs
+    # Build data/SGP configs
     data_cfg = DataConfig(**cfg_dict["data"])
-    flare_cfg = FlareConfig(**cfg_dict["flare"])
+    sgp_cfg = SGPConfig(**cfg_dict["sgp"])
 
     deal_dict = dict(cfg_dict["deal"])
     has_threshold = deal_dict.get("threshold", None) is not None
@@ -167,7 +183,7 @@ def main() -> None:
         sys.exit(1)
 
     if has_max_selected:
-        _run_incremental_cli(data_cfg, deal_dict, flare_cfg)
+        _run_incremental_cli(data_cfg, deal_dict, sgp_cfg)
         return
 
     # Standard mode: handle one threshold or a list of independent thresholds
@@ -182,7 +198,7 @@ def main() -> None:
 
             print(f"[DEAL] Running with threshold: {th}")
             deal_cfg = DEALConfig(**run_deal_dict)
-            DEAL(data_cfg, deal_cfg, flare_cfg).run()
+            DEAL(data_cfg, deal_cfg, sgp_cfg).run()
     else:
         deal_cfg = DEALConfig(**deal_dict)
-        DEAL(data_cfg, deal_cfg, flare_cfg).run()
+        DEAL(data_cfg, deal_cfg, sgp_cfg).run()

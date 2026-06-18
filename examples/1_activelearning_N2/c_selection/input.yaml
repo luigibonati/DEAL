@@ -8,10 +8,11 @@ deal:
   - 0.05
   - 0.10
   - 0.15
+  mask: false
   max_atoms_added: 0.15          # can be int (number of atoms) or float (0,1) (fraction of total atoms). Default: -1 (no limit)
   initial_atoms: 0.2             # use up to 20% of the atoms of each species for initial training
   output_prefix: deal            # prefix for output files (threshold will be appended as suffix) 
   verbose: true                  # allowed values: true/false/"debug" (default: false)
 
-flare:
+sgp:
   cutoff: 5.0

@@ -8,6 +8,7 @@ data:
 
 deal:
   threshold: 0.1 
+  mask: false
   # threshold:                   # can be a single value or a list 
   # - 0.05
   # - 0.1
@@ -22,8 +23,8 @@ deal:
   save_gp: false
   save_full_trajectory: true
 
-flare:
-  gp: SGP_Wrapper               # (see flare's documentation)
+sgp:
+  gp: SGP_Wrapper
   kernels:
   - name: NormalizedDotProduct
     sigma: 2

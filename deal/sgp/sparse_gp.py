@@ -5,13 +5,13 @@ from scipy.optimize import minimize
 from typing import List
 import warnings
 from ase import Atoms
-from .atoms import FLARE_Atoms
+from .atoms import SGPAtoms
 from .utils import NumpyEncoder
 
 try:
-    from ._C_flare import SparseGP, Structure, NormalizedDotProduct, B2, DotProduct
+    from ._C_sgp import SparseGP, Structure, NormalizedDotProduct, B2, DotProduct
 except Exception as e:
-    warnings.warn(f"Cannot import _C_flare: {e.__class__.__name__}: {e}")
+    warnings.warn(f"Cannot import _C_sgp: {e.__class__.__name__}: {e}")
 
 
 class SGP_Wrapper:
@@ -190,7 +190,7 @@ class SGP_Wrapper:
             species = [inv_species_map[s] for s in struc_cpp.species]
 
             # build training structure
-            train_struc = FLARE_Atoms(
+            train_struc = SGPAtoms(
                 cell=struc_cpp.cell,
                 symbols=species,
                 positions=struc_cpp.positions,
@@ -274,7 +274,7 @@ class SGP_Wrapper:
         training_data = in_dict["training_structures"]
         for s in range(len(training_data)):
             custom_range = in_dict["sparse_indice"][0][s]
-            train_struc = FLARE_Atoms.from_dict(training_data[s])
+            train_struc = SGPAtoms.from_dict(training_data[s])
             if "atom_indices" in in_dict:
                 atom_indices = in_dict["atom_indices"][s]
             else:
@@ -329,7 +329,7 @@ class SGP_Wrapper:
     ):
 
         # Convert coded species to 0, 1, 2, etc.
-        if isinstance(structure, (Atoms, FLARE_Atoms)):
+        if isinstance(structure, (Atoms, SGPAtoms)):
             coded_species = []
             for spec in structure.numbers:
                 coded_species.append(self.species_map[spec])
@@ -338,7 +338,7 @@ class SGP_Wrapper:
         else:
             raise Exception
 
-        # Convert flare structure to structure descriptor.
+        # Convert atom structure to structure descriptor.
         structure_descriptor = Structure(
             structure.cell,
             coded_species,

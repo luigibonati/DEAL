@@ -8,21 +8,21 @@ from typing import Optional, Sequence
 import numpy as np
 from ase.calculators.singlepoint import SinglePointCalculator
 
-from .sgp import FLARE_Atoms, SGP_Calculator, SGP_Wrapper
+from .sgp import SGPAtoms, SGP_Calculator, SGP_Wrapper
 from .sgp.utils import is_std_in_bound
 
-from .config import FlareConfig
+from .config import SGPConfig
 
 
 class DealActiveLearningModel:
     """Narrow model surface used by DEAL active learning.
 
-    This is intentionally smaller than FLARE's public API.  It isolates the
+    This is intentionally smaller than the historical upstream public API. It isolates the
     SGP local-uncertainty workflow that DEAL needs today, and gives us a
-    stable place to replace FLARE internals with a DEAL-specific engine later.
+    stable place to keep evolving a DEAL-specific engine.
     """
 
-    def __init__(self, config: FlareConfig):
+    def __init__(self, config: SGPConfig):
         self.config = config
         self.calculator, self.kernels = self._build_sgp_calculator(asdict(config))
         self.gp = self.calculator.gp_model
@@ -37,7 +37,7 @@ class DealActiveLearningModel:
 
     @staticmethod
     def to_model_atoms(ase_atoms):
-        return FLARE_Atoms.from_ase_atoms(ase_atoms)
+        return SGPAtoms.from_ase_atoms(ase_atoms)
 
     @staticmethod
     def extract_atomic_uncertainty(atoms, n_atoms: int) -> np.ndarray:
@@ -85,15 +85,12 @@ class DealActiveLearningModel:
         atoms,
         threshold: float,
         update_threshold: float,
-        preselection_mask: Optional[np.ndarray] = None,
-        use_preselected_targets: bool = True,
+        candidate_mask: Optional[np.ndarray] = None,
     ) -> tuple[bool, list[int]]:
-        if preselection_mask is not None:
-            std_in_bound, target_atoms = self._select_preselected_target_atoms(
-                atoms, threshold, update_threshold, preselection_mask
+        if candidate_mask is not None:
+            return self._select_masked_target_atoms(
+                atoms, threshold, update_threshold, candidate_mask
             )
-            if use_preselected_targets or std_in_bound:
-                return std_in_bound, target_atoms
 
         std_in_bound, target_atoms = is_std_in_bound(
             threshold * -1,
@@ -102,14 +99,10 @@ class DealActiveLearningModel:
             update_style="threshold",
             update_threshold=update_threshold,
         )
-        if preselection_mask is not None:
-            target_atoms = [
-                idx for idx in target_atoms if 0 <= idx < len(preselection_mask)
-            ]
         return std_in_bound, target_atoms
 
     @staticmethod
-    def _select_preselected_target_atoms(
+    def _select_masked_target_atoms(
         atoms,
         threshold: float,
         update_threshold: float,
@@ -144,17 +137,17 @@ class DealActiveLearningModel:
         force_only: bool = True,
         train_hyperparameters: bool = False,
     ) -> None:
-        flare_stress = self._to_flare_stress(dft_stress)
+        sgp_stress = self._to_sgp_stress(dft_stress)
         if force_only:
             dft_energy = None
-            flare_stress = None
+            sgp_stress = None
 
         structure_to_add = deepcopy(atoms)
         sp_results = {"forces": dft_forces}
         if dft_energy is not None:
             sp_results["energy"] = dft_energy
-        if flare_stress is not None:
-            sp_results["stress"] = flare_stress
+        if sgp_stress is not None:
+            sp_results["stress"] = sgp_stress
         structure_to_add.calc = SinglePointCalculator(structure_to_add, **sp_results)
 
         self.gp.update_db(
@@ -162,7 +155,7 @@ class DealActiveLearningModel:
             dft_forces,
             custom_range=list(train_atoms),
             energy=dft_energy,
-            stress=np.zeros(6) if flare_stress is None else flare_stress,
+            stress=np.zeros(6) if sgp_stress is None else sgp_stress,
         )
         self.gp.set_L_alpha()
 
@@ -173,7 +166,7 @@ class DealActiveLearningModel:
         self.calculator.write_model(filename)
 
     @staticmethod
-    def _to_flare_stress(dft_stress: np.ndarray | None) -> np.ndarray | None:
+    def _to_sgp_stress(dft_stress: np.ndarray | None) -> np.ndarray | None:
         if dft_stress is None:
             return None
         dft_stress = np.asarray(dft_stress)
@@ -196,11 +189,11 @@ class DealActiveLearningModel:
         )
 
     @staticmethod
-    def _build_sgp_calculator(flare_config):
-        from .sgp._C_flare import B2, B3, FourBody, ThreeBody, TwoBody
-        from .sgp._C_flare import NormalizedDotProduct, SquaredExponential
+    def _build_sgp_calculator(sgp_config):
+        from .sgp._C_sgp import B2, B3, FourBody, ThreeBody, TwoBody
+        from .sgp._C_sgp import NormalizedDotProduct, SquaredExponential
 
-        sgp_file = flare_config.get("file", None)
+        sgp_file = sgp_config.get("file", None)
 
         if sgp_file is not None:
             with open(sgp_file, "r") as f:
@@ -210,13 +203,13 @@ class DealActiveLearningModel:
                 sgp, kernels = SGP_Wrapper.from_file(sgp_file)
                 return SGP_Calculator(sgp), kernels
 
-        opt_algorithm = flare_config.get("opt_algorithm", "BFGS")
-        max_iterations = flare_config.get("max_iterations", 20)
-        bounds = flare_config.get("bounds", None)
-        use_mapping = flare_config.get("use_mapping", False)
+        opt_algorithm = sgp_config.get("opt_algorithm", "BFGS")
+        max_iterations = sgp_config.get("max_iterations", 20)
+        bounds = sgp_config.get("bounds", None)
+        use_mapping = sgp_config.get("use_mapping", False)
 
         kernels = []
-        for kernel in flare_config["kernels"]:
+        for kernel in sgp_config["kernels"]:
             if kernel["name"] == "NormalizedDotProduct":
                 kernels.append(NormalizedDotProduct(kernel["sigma"], kernel["power"]))
             elif kernel["name"] == "SquaredExponential":
@@ -224,10 +217,10 @@ class DealActiveLearningModel:
             else:
                 raise NotImplementedError(f"{kernel['name']} kernel is not implemented")
 
-        n_species = len(flare_config["species"])
-        cutoff = flare_config["cutoff"]
+        n_species = len(sgp_config["species"])
+        cutoff = sgp_config["cutoff"]
         descriptors = []
-        for descriptor in flare_config["descriptors"]:
+        for descriptor in sgp_config["descriptors"]:
             cutoff_hyps = []
             if "cutoff_matrix" in descriptor:
                 assert np.allclose(
@@ -291,8 +284,8 @@ class DealActiveLearningModel:
                 )
             descriptors.append(desc_calc)
 
-        species_map = {flare_config.get("species")[i]: i for i in range(n_species)}
-        sae_dct = flare_config.get("single_atom_energies", None)
+        species_map = {sgp_config.get("species")[i]: i for i in range(n_species)}
+        sae_dct = sgp_config.get("single_atom_energies", None)
         if sae_dct is not None:
             assert n_species == len(
                 sae_dct
@@ -305,15 +298,15 @@ class DealActiveLearningModel:
             kernels=kernels,
             descriptor_calculators=descriptors,
             cutoff=cutoff,
-            sigma_e=flare_config.get("energy_noise", 0.1),
-            sigma_f=flare_config.get("forces_noise", 0.05),
-            sigma_s=flare_config.get("stress_noise", 0.1),
+            sigma_e=sgp_config.get("energy_noise", 0.1),
+            sigma_f=sgp_config.get("forces_noise", 0.05),
+            sigma_s=sgp_config.get("stress_noise", 0.1),
             species_map=species_map,
-            variance_type=flare_config.get("variance_type", "local"),
+            variance_type=sgp_config.get("variance_type", "local"),
             single_atom_energies=single_atom_energies,
-            energy_training=flare_config.get("energy_training", True),
-            force_training=flare_config.get("force_training", True),
-            stress_training=flare_config.get("stress_training", True),
+            energy_training=sgp_config.get("energy_training", True),
+            force_training=sgp_config.get("force_training", True),
+            stress_training=sgp_config.get("stress_training", True),
             max_iterations=max_iterations,
             opt_method=opt_algorithm,
             bounds=bounds,

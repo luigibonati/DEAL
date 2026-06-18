@@ -5,9 +5,10 @@ data:
 
 deal:
   threshold: 0.15              # can be a single value or a list 
+  mask: false
   max_atoms_added: 0.15        # can be int (number of atoms) or float (0,1) (fraction of total atoms). Default: -1 (no limit)
   initial_atoms: 0.2           # use up to 20% of the atoms of each species for GP initialization
   output_prefix: "b_selection/deal_0.15"   # prefix for output files (threshold will be appended as suffix)
   
-flare:
+sgp:
   cutoff: 4.5

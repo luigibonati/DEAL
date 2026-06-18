@@ -2,7 +2,7 @@ from pathlib import Path
 from ase.io import read, write
 import numpy as np
 
-from deal import DataConfig, DEALConfig, FlareConfig, DEAL
+from deal import DataConfig, DEALConfig, SGPConfig, DEAL
 
 # ------------------------
 # user parameters
@@ -34,6 +34,7 @@ for iter, deal_threshold in enumerate(thresholds):
     if iter == 0:
         deal_cfg = DEALConfig(
             threshold=deal_threshold,
+            mask=False,
             max_atoms_added=0.15,
             initial_atoms=0.2,
             output_prefix=f"{deal_folder}/deal_{deal_threshold}",
@@ -41,13 +42,14 @@ for iter, deal_threshold in enumerate(thresholds):
             save_full_trajectory=True
         )
         data_cfg = DataConfig(images=traj_input)
-        flare_cfg = FlareConfig()
-        deal = DEAL(data_cfg, deal_cfg, flare_cfg)
+        sgp_cfg = SGPConfig()
+        deal = DEAL(data_cfg, deal_cfg, sgp_cfg)
     else:
         # update input and threshold without rebuilding the SGP
         data_cfg = DataConfig(images=traj_new)
         deal_cfg = DEALConfig(
             threshold=deal_threshold,
+            mask=False,
             max_atoms_added=0.15,
             initial_atoms=0.2,
             output_prefix=f"{deal_folder}/deal_{deal_threshold}",

@@ -15,11 +15,7 @@ deal:
 
   update_threshold: none  # if not set it is chosen as 0.8 * threshold 
   max_atoms_added: -1    # limit the number of selected environments added per configuration (can be int (number of atoms) float (0,1) (fraction of total atoms), or -1 (no limit)
-  # uncertainty_key: force_std_comp_max # optional per-atom uncertainty array for preselection
-  # uncertainty_threshold: 0.05         # only atoms above this external uncertainty are considered
-  # uncertainty_rejected_value: -1      # output atomic_uncertainty value for atoms below the threshold
-  # uncertainty_filter_initial_atoms: false # keep initial GP bootstrap unchanged by default
-  # uncertainty_filter_update_atoms: true   # if false, external uncertainty gates frames but GP updates can use all GP-target atoms
+  mask: true              # false = all atoms; true = deal_mask; or use another per-atom mask name
   initial_atoms: none     # specify which atoms to use for GP initialization (list, fraction or number. Default: none, 1 atom per species)
   output_prefix: deal     # prefix for output files (threshold will be appended as suffix)
   force_only: true
@@ -28,8 +24,8 @@ deal:
   save_gp: false
   save_full_trajectory: false 
 
-flare_calc:
-  gp: SGP_Wrapper        # (see flare's documentation)
+sgp:
+  gp: SGP_Wrapper
   kernels:
     - name: NormalizedDotProduct
       sigma: 2 

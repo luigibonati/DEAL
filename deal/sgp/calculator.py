@@ -3,9 +3,9 @@ from .utils import NumpyEncoder
 import warnings
 
 try:
-    from ._C_flare import Structure
+    from ._C_sgp import Structure
 except Exception as e:
-    warnings.warn(f"Cannot import _C_flare: {e.__class__.__name__}: {e}")
+    warnings.warn(f"Cannot import _C_sgp: {e.__class__.__name__}: {e}")
 
 from .sparse_gp import SGP_Wrapper
 import numpy as np
@@ -75,15 +75,15 @@ class SGP_Calculator(Calculator):
                 self.results["energy"] += self.gp_model.single_atom_energies[spec]
 
         # Convert stress to ASE format.
-        flare_stress = deepcopy(structure_descriptor.mean_efs[-6:])
+        sgp_stress = deepcopy(structure_descriptor.mean_efs[-6:])
         ase_stress = -np.array(
             [
-                flare_stress[0],
-                flare_stress[3],
-                flare_stress[5],
-                flare_stress[4],
-                flare_stress[2],
-                flare_stress[1],
+                sgp_stress[0],
+                sgp_stress[3],
+                sgp_stress[5],
+                sgp_stress[4],
+                sgp_stress[2],
+                sgp_stress[1],
             ]
         )
         self.results["stress"] = ase_stress
@@ -166,9 +166,7 @@ class SGP_Calculator(Calculator):
 
         return calc, kernels
 
-    def build_map(
-        self, filename="lmp.flare", contributor="user", map_uncertainty=False
-    ):
+    def build_map(self, filename="lmp.sgp", contributor="user", map_uncertainty=False):
         # write potential file for lammps
         self.gp_model.sparse_gp.write_mapping_coefficients(filename, contributor, 0)
 

@@ -14,9 +14,9 @@ from ase.calculators.singlepoint import SinglePointCalculator
 from .utils import get_max_cutoff
 
 
-class FLARE_Atoms(Atoms):
+class SGPAtoms(Atoms):
     """
-    The `FLARE_Atoms` class is a child class of ASE `Atoms`,
+    The `SGPAtoms` class is a child class of ASE `Atoms`,
     which has completely the same usage as the primitive ASE `Atoms`, and
     in the meanwhile mimic `Structure` class. It is used in the `OTF` module
     with ASE engine (by `OTF_ASE` module). It enables attributes to be
@@ -37,7 +37,7 @@ class FLARE_Atoms(Atoms):
             atoms (ASE Atoms): the ase atoms to build from
         """
         new_atoms = deepcopy(atoms)
-        new_atoms.__class__ = FLARE_Atoms
+        new_atoms.__class__ = SGPAtoms
         new_atoms.prev_positions = np.zeros_like(new_atoms.positions)
         new_atoms.pbc = True
         if copy_calc_results:
@@ -128,7 +128,7 @@ class FLARE_Atoms(Atoms):
 
     @property
     def stds(self):
-        try:  # when self.calc is not FLARE, there's no get_uncertainties()
+        try:  # when self.calc does not expose uncertainties
             stds = self.calc.results["stds"]
         except:
             stds = np.zeros_like(self.positions)
@@ -180,7 +180,7 @@ class FLARE_Atoms(Atoms):
             atoms.calc = SinglePointCalculator(atoms)
             atoms.calc.results = results
 
-        return FLARE_Atoms.from_ase_atoms(atoms)
+        return SGPAtoms.from_ase_atoms(atoms)
 
 
 class StructureSource(object):
@@ -188,7 +188,7 @@ class StructureSource(object):
         pass
 
     @abstractmethod
-    def get_next_structure(self) -> FLARE_Atoms:
+    def get_next_structure(self) -> SGPAtoms:
         raise NotImplementedError
 
     def write_file(self):
@@ -209,7 +209,7 @@ class ForceSource(object):
 
 class Trajectory(StructureSource, ForceSource):
     def __init__(
-        self, frames: List[FLARE_Atoms] = None, iterate_strategy: Union[int, str] = 1
+        self, frames: List[SGPAtoms] = None, iterate_strategy: Union[int, str] = 1
     ):
         if frames is None:
             frames = []
@@ -223,7 +223,7 @@ class Trajectory(StructureSource, ForceSource):
         if isinstance(iterate_strategy, int):
             self.frames = frames[::iterate_strategy]
 
-    def get_next_structure(self) -> Union[FLARE_Atoms, None]:
+    def get_next_structure(self) -> Union[SGPAtoms, None]:
 
         if self.cur_idx == len(self):
             self.cur_idx = 0
@@ -268,5 +268,5 @@ class Trajectory(StructureSource, ForceSource):
         self.cur_idx = 0
         return self
 
-    def append(self, frame: FLARE_Atoms):
+    def append(self, frame: SGPAtoms):
         self.frames.append(frame)
