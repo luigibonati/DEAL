@@ -58,8 +58,8 @@ A short practical [introduction](DEAL.md) describes the main ingredients (SGP, l
 
 DEAL requires:
 
-* `python<=3.13` 
-* [`flare==1.3.3b`](https://github.com/mir-group/flare)
+* Python 3.10, as specified in `environment-deal.yml`
+* DEAL's native sparse-GP extension, built during installation
 * `ase`
 * `pandas`
 * `numpy`
@@ -69,33 +69,27 @@ DEAL requires:
 
 ## 🚀 Installation
 
-Below is a complete installation sequence.
+DEAL is now installed as a standalone package. A separate FLARE installation is
+not required; the minimal sparse-GP backend used by DEAL is built as DEAL's
+native extension.
 
-Create environment
-
-```bash
-conda create -n deal python=3.12
-conda activate deal
-```
-
-Install **FLARE 1.3.3b**
-
-(See: [https://mir-group.github.io/flare/installation/install.html](https://mir-group.github.io/flare/installation/install.html))
-
-```bash
-conda install -y gcc gxx cmake openmp liblapacke openblas -c conda-forge
-git clone https://github.com/mir-group/flare.git -b 1.3.3b
-cd flare
-pip install .
-cd ..
-```
-
-3. Install DEAL
+Create the conda environment and install DEAL:
 
 ```bash
 git clone https://github.com/luigibonati/DEAL.git
 cd DEAL
-pip install .
+conda env create -f environment-deal.yml
+conda activate deal
+python -m pip install -e . --no-build-isolation
+```
+
+If you keep the environment inside a project folder instead of using the named
+conda environment, use a prefix:
+
+```bash
+conda env create -p /path/to/DEAL_3.0/.conda/deal -f environment-deal.yml
+conda activate /path/to/DEAL_3.0/.conda/deal
+python -m pip install -e . --no-build-isolation
 ```
 
 ---
@@ -143,7 +137,7 @@ data:
   #seed: 42
 
 deal:
-  threshold: 0.1           standard mode: scalar or list of values
+  threshold: 0.1          # standard mode: scalar or list of values
   # OR
   #max_selected: 50       # incremental mode: mutually exclusive with `threshold`
   #max_iterations: 10     # max iterations for incremental mode
@@ -151,11 +145,7 @@ deal:
   
   update_threshold: none # if not set it is chosen as 0.8 * threshold 
   max_atoms_added: 0.2    # limit the number of selected environments added per configuration (can be int (number of atoms) float (0,1) (fraction of total atoms), or -1 (no limit)
-  #uncertainty_key: force_std_comp_max # optional per-atom array used for preselection
-  #uncertainty_threshold: 0.05         # only atoms with uncertainty_key > this value can be selected/added
-  #uncertainty_rejected_value: -1      # atomic_uncertainty value written for atoms below the preselection threshold
-  #uncertainty_filter_initial_atoms: false # keep initial GP bootstrap unchanged by default
-  #uncertainty_filter_update_atoms: true   # if false, external uncertainty gates frames but GP updates can use all GP-target atoms
+  mask: true              # false = all atoms; true = deal_mask; string = custom per-atom mask array
   initial_atoms: none     # specify which atoms to use for GP initialization (list, fraction or number. Default: none, 1 atom per species)
   output_prefix: deal     # prefix for output files
   force_only: true
@@ -164,8 +154,8 @@ deal:
   save_gp: false
   save_full_trajectory: false  # if true, writes <prefix>_trajectory_uncertainty.xyz with per-atom array "atomic_uncertainty"
 
-flare_calc:
-  gp: SGP_Wrapper         # (see flare's documentation)
+sgp:
+  gp: SGP_Wrapper
   kernels:
     - name: NormalizedDotProduct
       sigma: 2 
@@ -179,28 +169,45 @@ flare_calc:
   cutoff: 4.5
   
 ```
+If you want to restrict DEAL to atoms selected by an external uncertainty
+estimate, prepare the trajectory first with `deal-mask`:
+
+```bash
+deal-mask \
+  -f traj_with_uncertainty.xyz \
+  -o traj_with_deal_mask.xyz \
+  -k force_std_comp_max \
+  -t 0.05 \
+  --mode above \
+  --mask-key deal_mask
+```
+
+Then run DEAL on `traj_with_deal_mask.xyz` with `deal.mask: true`.
+
 One can also use a base config file and override via CLI the options:
 ```bash
 deal -c input.yaml -t 0.15
 deal -c input.yaml --max-selected 50
+deal -c input.yaml --mask false
 ```
 
 ### Python Usage
 
 ```python
 # Import 
-from deal import DataConfig, DEALConfig, FlareConfig, DEAL
+from deal import DataConfig, DEALConfig, SGPConfig, DEAL
 
 # Define Config (uses defaults where not provided)
 data_cfg = DataConfig(files="traj.xyz")
 deal_cfg = DEALConfig(
     threshold=0.1,
-    output_prefix="deal",    
+    mask=False,
+    output_prefix="deal",
 )
-flare_cfg = FlareConfig()
+sgp_cfg = SGPConfig()
 
 # Instantiate DEAL class
-deal = DEAL(data_cfg, deal_cfg, flare_cfg)
+deal = DEAL(data_cfg, deal_cfg, sgp_cfg)
 
 # Run 
 deal.run()
@@ -225,7 +232,7 @@ Equivalent behaviour in Python:
 for thr in [0.10, 0.15, 0.20]:
     deal_cfg.threshold = thr
     deal_cfg.output_prefix = f"run_thr{thr}"
-    DEAL(data_cfg, deal_cfg, flare_cfg).run()
+    DEAL(data_cfg, deal_cfg, sgp_cfg).run()
 ```
 
 ### Incremental selection (CLI)
@@ -262,7 +269,7 @@ In both cases the following file is generated (with the default `output_prefix=d
 Contains the atomic configurations where the GP uncertainty exceeded the threshold.
 Includes atoms.info["original_frame"] indicating the original trajectory index.
 If `save_gp: true`, DEAL also writes:
-2. **`deal_flare.json` – final GP model**
+2. **`deal_sgp.json` – final GP model**
 
 If `save_full_trajectory: true`, DEAL also writes:
 3. **`deal_trajectory_uncertainty.xyz` – full trajectory with uncertainties**
@@ -271,20 +278,12 @@ They both contain:
 - per-atom array `atomic_uncertainty` (saved in `atoms.arrays`)
 - frame scalar `max_atomic_uncertainty` (saved in `atoms.info`)
 
-If `deal.uncertainty_key` and `deal.uncertainty_threshold` are set, DEAL first
-reads the named per-atom uncertainty array from the input trajectory. After the
-initial GP bootstrap, only atoms with values above `uncertainty_threshold` are
-allowed to trigger selection. With the default
-`uncertainty_filter_update_atoms: true`, the same mask is also applied to atoms
-added to the GP. If this causes many one-atom updates, setting
-`uncertainty_filter_update_atoms: false` keeps the external uncertainty as a
-frame-selection gate while allowing selected frames to update the GP with all
-SGP-target atoms; this is usually faster when GP updates dominate runtime. Atoms
-below the external threshold are still written with `uncertainty_rejected_value`
-in the output `atomic_uncertainty` array (default: `-1`). Frames with no atoms
-above the external threshold are skipped, except when the first frame is needed
-to initialize the GP. Set `uncertainty_filter_initial_atoms: true` to apply the
-same filter also to the initial GP bootstrap atoms.
+If `deal.mask` is enabled, DEAL reads a per-atom mask array from the trajectory.
+`mask: true` uses the default `deal_mask` array created by `deal-mask`; a string
+value uses that custom array name. Atoms with zero/false mask values are excluded
+from GP uncertainty prediction and written with `atomic_uncertainty = -1.0`.
+Frames with no eligible atoms are skipped. If `mask: false`, every atom is
+eligible.
 
 ### Create a chemiscope file
 
@@ -319,7 +318,7 @@ Below a quick guide, see the [introduction](DEAL.md) to DEAL for a more in-depth
 
 **Descriptors**
 
-Local environments are characterized via the Atomic Cluster Expansion formalism as implemented in `flare`. Key hyperparameters: body order (`B1/B2`), radial degree `nmax`, angular degree `lmax`, and `cutoff` (in Å).
+Local environments are characterized via the Atomic Cluster Expansion formalism in DEAL's native SGP backend. Key hyperparameters: body order (`B1/B2`), radial degree `nmax`, angular degree `lmax`, and `cutoff` (in Å).
 
 ```yaml
   descriptors:
@@ -337,10 +336,7 @@ Local environments are characterized via the Atomic Cluster Expansion formalism 
   update_threshold: 0.08  # if not set it is chosen as 0.8 * threshold      
   max_atoms_added: -1 # no limit on the number of selected environment of a given configuration to the GP.
   initial_atoms: 0.15 # use up to 15% of the atoms (of each species) for GP initialization
-  # uncertainty_key: force_std_comp_max # optional per-atom uncertainty array for preselection
-  # uncertainty_threshold: 0.05 # only atoms above this external uncertainty are considered
-  # uncertainty_filter_initial_atoms: false # keep initial GP bootstrap unchanged
-  # uncertainty_filter_update_atoms: true # set false to gate frames but update GP with all SGP-target atoms
+  mask: true # use deal_mask prepared by deal-mask; set false to use all atoms
 ```      
 
 The`threshold` parameter in the DEAL configuration controls when a local environment is flagged by the SGP’s predictive variance (normalized by the noise hyperparameter). If any environment exceeds the threshold, the GP is updated and that environment (plus any others above `update_threshold`, up to `max_atoms_added`) is added. 

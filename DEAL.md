@@ -18,7 +18,7 @@ In many workflows, step 2 is performed with *query-by-committee*, where an ensem
 
 > DEAL uses the uncertainty prediction of a Gaussian Process model to select the configurations based on the structural similarity via local-environment descriptors.
 
-We first introduce the ingredients used by DEAL, particularly the sparse Gaussian process (SGP) based on ACE local descriptors and the uncertainty measure, as implemented in the FLARE [2] package.
+We first introduce the ingredients used by DEAL, particularly the sparse Gaussian process (SGP) based on ACE local descriptors and the uncertainty measure. The current code ships a DEAL-owned native SGP backend containing the minimal functionality needed by DEAL.
 
 ### 2.1 Local descriptors (ACE)
 
@@ -31,9 +31,9 @@ At high level, these descriptors encode:
 - chemical identity (which species contribute to the local density).
 
 Relevant config parameters are:
-- `flare_calc.cutoff` (global cutoff radius $r_c$, or, optionally, pair-dependent cutoffs specified via `cutoff_matrix`)
-- `flare_calc.descriptors.nmax` (radial resolution)
-- `flare_calc.descriptors.lmax` (angular resolution)
+- `sgp.cutoff` (global cutoff radius $r_c$, or, optionally, pair-dependent cutoffs specified via `cutoff_matrix`)
+- `sgp.descriptors.nmax` (radial resolution)
+- `sgp.descriptors.lmax` (angular resolution)
 
 Notes:
 - **Multiple species**. For multi-component systems, neighbor density of different species are concatenated, so environments with similar geometry but different chemistry remain distinguishable.
@@ -64,7 +64,7 @@ $$
 
 - $\alpha_m$ are learned GP weights during training.
 
-So the model compares each current environment against reference environments in the training set and combines these similarities. To keep memory and compute manageable, FLARE uses a **sparse GP** updates: only a subset of environments is retained as reference environments.
+So the model compares each current environment against reference environments in the training set and combines these similarities. To keep memory and compute manageable, DEAL uses **sparse GP** updates: only a subset of environments is retained as reference environments.
 
 ### 2.3 GP predictive variance 
 
@@ -74,7 +74,7 @@ $$
 \mathrm{Var}[\varepsilon(\rho)] =\frac{k(\rho,\rho)-\mathbf{k}^\top\mathbf{K}^{-1}\mathbf{k}}{ \sigma^2}
 $$
 
-which depends on the matrix of kernel similarities between the enviroment and the reference set $\mathbf{k}$ (each element is $k(\rho,\rho_m)$ ), as well as the one between the reference structures themselves ($\mathbf{K}$). In other words, the predicted uncertainty is based only on structural novelty measured in local-environment space, not on the (DFT) energies. Furthermore, in FLARE the variance is normalized by the lengthscale hyperparameter $\sigma$, to yield a number betweeen 0 and 1.
+which depends on the matrix of kernel similarities between the enviroment and the reference set $\mathbf{k}$ (each element is $k(\rho,\rho_m)$ ), as well as the one between the reference structures themselves ($\mathbf{K}$). In other words, the predicted uncertainty is based only on structural novelty measured in local-environment space, not on the (DFT) energies. DEAL reports the variance normalized by the signal hyperparameter $\sigma$, yielding a unitless value.
 
 ## 3) How DEAL selection works
 
@@ -106,4 +106,4 @@ Note: the training time scales unfavorably with the number of samples. For a lar
 
 [1] DEAL: https://www.nature.com/articles/s41524-024-01481-6
 
-[2] FLARE SGP: https://www.nature.com/articles/s41467-022-32294-0
+[2] FLARE SGP background: https://www.nature.com/articles/s41467-022-32294-0
