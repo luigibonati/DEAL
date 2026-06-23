@@ -31,6 +31,7 @@ class SGP_Calculator(Calculator):
         properties=None,
         system_changes=all_changes,
         atom_indices=None,
+        uncertainty_only=False,
     ):
         """
         Calculate properties including: energy, local energies, forces,
@@ -58,16 +59,38 @@ class SGP_Calculator(Calculator):
             self.gp_model.descriptor_calculators,
         )
 
-        self.predict_on_structure(structure_descriptor, atom_indices=atom_indices)
+        self.predict_on_structure(
+            structure_descriptor,
+            atom_indices=atom_indices,
+            uncertainty_only=uncertainty_only,
+        )
 
-    def predict_on_structure(self, structure_descriptor, atom_indices=None):
+    def predict_on_structure(
+        self, structure_descriptor, atom_indices=None, uncertainty_only=False
+    ):
+        if uncertainty_only:
+            # ASE may retain results when calculate() is called repeatedly for
+            # unchanged atoms. Do not expose stale mean predictions from an
+            # earlier full calculation.
+            for property_name in ("energy", "forces", "stress"):
+                self.results.pop(property_name, None)
+
         # Predict on structure.
         if self.gp_model.variance_type == "SOR":
             self.gp_model.sparse_gp.predict_SOR(structure_descriptor)
         elif self.gp_model.variance_type == "DTC":
             self.gp_model.sparse_gp.predict_DTC(structure_descriptor)
         elif self.gp_model.variance_type == "local":
-            if atom_indices is None:
+            if uncertainty_only:
+                if atom_indices is None:
+                    self.gp_model.sparse_gp.predict_local_uncertainties_only(
+                        structure_descriptor
+                    )
+                else:
+                    self.gp_model.sparse_gp.predict_local_uncertainties_only(
+                        structure_descriptor, list(atom_indices)
+                    )
+            elif atom_indices is None:
                 self.gp_model.sparse_gp.predict_local_uncertainties(
                     structure_descriptor
                 )
@@ -77,29 +100,30 @@ class SGP_Calculator(Calculator):
                 )
 
         # Set results.
-        self.results["energy"] = deepcopy(structure_descriptor.mean_efs[0])
-        self.results["forces"] = deepcopy(
-            structure_descriptor.mean_efs[1:-6].reshape(-1, 3)
-        )
+        if not uncertainty_only:
+            self.results["energy"] = deepcopy(structure_descriptor.mean_efs[0])
+            self.results["forces"] = deepcopy(
+                structure_descriptor.mean_efs[1:-6].reshape(-1, 3)
+            )
 
-        # Add back single atom energies
-        if self.gp_model.single_atom_energies is not None:
-            for spec in structure_descriptor.species:
-                self.results["energy"] += self.gp_model.single_atom_energies[spec]
+            # Add back single atom energies
+            if self.gp_model.single_atom_energies is not None:
+                for spec in structure_descriptor.species:
+                    self.results["energy"] += self.gp_model.single_atom_energies[spec]
 
-        # Convert stress to ASE format.
-        sgp_stress = deepcopy(structure_descriptor.mean_efs[-6:])
-        ase_stress = -np.array(
-            [
-                sgp_stress[0],
-                sgp_stress[3],
-                sgp_stress[5],
-                sgp_stress[4],
-                sgp_stress[2],
-                sgp_stress[1],
-            ]
-        )
-        self.results["stress"] = ase_stress
+            # Convert stress to ASE format.
+            sgp_stress = deepcopy(structure_descriptor.mean_efs[-6:])
+            ase_stress = -np.array(
+                [
+                    sgp_stress[0],
+                    sgp_stress[3],
+                    sgp_stress[5],
+                    sgp_stress[4],
+                    sgp_stress[2],
+                    sgp_stress[1],
+                ]
+            )
+            self.results["stress"] = ase_stress
 
         # Report negative variances, which can arise if there are numerical
         # instabilities.

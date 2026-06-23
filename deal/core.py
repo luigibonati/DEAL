@@ -172,6 +172,22 @@ class DEAL:
         sys.stdout.write("\r" + msg)
         sys.stdout.flush()
 
+    @staticmethod
+    def _format_atom_indices(atom_indices: Sequence[int], limit: int = 20) -> str:
+        """Format atom indices without letting debug lines grow without bound."""
+        indices = [int(index) for index in atom_indices]
+        shown = ",".join(str(index) for index in indices[:limit])
+        if len(indices) > limit:
+            shown += f",...(+{len(indices) - limit})"
+        return f"[{shown}]"
+
+    def _debug(self, step: int, **fields) -> None:
+        """Write a labelled, grep-friendly debug record for one frame event."""
+        if not self.deal_cfg.debug:
+            return
+        details = " | ".join(f"{key}={value}" for key, value in fields.items())
+        sys.stdout.write(f"\r[DEBUG] step={step + 1} | {details}\n")
+
     def _get_candidate_mask(self, ase_frame) -> Optional[np.ndarray]:
         """Return a boolean candidate mask from the configured frame array."""
         if self.deal_cfg.mask is False:
@@ -275,6 +291,12 @@ class DEAL:
                     t_io0 = time.perf_counter()
                     self._store_full_trajectory_frame(step, ase_frame)
                     self.timers["io_write"] += time.perf_counter() - t_io0
+                self._debug(
+                    step,
+                    decision="skip",
+                    reason="empty_candidate_mask",
+                    candidates=f"0/{len(ase_frame)}",
+                )
                 elapsed = time.perf_counter() - self.timers["start"]
                 step_time = time.perf_counter() - step_start
                 self._print_progress(step, elapsed, step_time)
@@ -289,11 +311,6 @@ class DEAL:
                 t_up0 = time.perf_counter()
                 init_frame = True
                 init_candidate_mask = candidate_mask
-                if self.deal_cfg.debug:
-                    sys.stdout.write(
-                        "\r"
-                        + f"[DEBUG] : step {step+1} : Initializing GP with first frame\n"
-                    )
                 if isinstance(self.deal_cfg.initial_atoms, list):
                     init_atoms = self._filter_atoms_by_mask(
                         self.deal_cfg.initial_atoms, init_candidate_mask
@@ -339,15 +356,16 @@ class DEAL:
                         t_io0 = time.perf_counter()
                         self._store_full_trajectory_frame(step, ase_frame)
                         self.timers["io_write"] += time.perf_counter() - t_io0
+                    self._debug(
+                        step,
+                        decision="skip",
+                        reason="no_bootstrap_atoms_after_mask",
+                        candidates=f"{int(np.count_nonzero(init_candidate_mask))}/{len(atoms)}",
+                    )
                     elapsed = time.perf_counter() - self.timers["start"]
                     step_time = time.perf_counter() - step_start
                     self._print_progress(step, elapsed, step_time)
                     continue
-                if self.deal_cfg.debug:
-                    sys.stdout.write(
-                        "\r"
-                        + f"[DEBUG] : step {step+1} : Initial atoms selected : {init_atoms}"
-                    )
                 self.model.update(
                     atoms=atoms,
                     train_atoms=init_atoms,
@@ -357,7 +375,20 @@ class DEAL:
                     force_only=self.deal_cfg.force_only,
                     train_hyperparameters=self.deal_cfg.train_hyps,
                 )
-                self.timers["update"] += time.perf_counter() - t_up0
+                bootstrap_time = time.perf_counter() - t_up0
+                self.timers["update"] += bootstrap_time
+                self._debug(
+                    step,
+                    event="bootstrap",
+                    candidates=(
+                        f"{int(np.count_nonzero(init_candidate_mask))}/{len(atoms)}"
+                        if init_candidate_mask is not None
+                        else f"{len(atoms)}/{len(atoms)}"
+                    ),
+                    train_atoms=len(init_atoms),
+                    train_indices=self._format_atom_indices(init_atoms),
+                    update_s=f"{bootstrap_time:.3f}",
+                )
 
             # 3) Predict with SGP and compute uncertainties
             t_pred0 = time.perf_counter()
@@ -406,14 +437,11 @@ class DEAL:
                 0 < max_atom_added < len(target_atoms)
             ):  # only keep up to max_atoms_added atoms
                 target_atoms = target_atoms[-max_atom_added:]
-            self.timers["predict"] += time.perf_counter() - t_pred0
-            if self.deal_cfg.debug:
-                sys.stdout.write(
-                    "\r"
-                    + f"[DEBUG] : step {step+1} : {std_in_bound} : {target_atoms} : {self.deal_cfg.max_atoms_added if isinstance(self.deal_cfg.max_atoms_added, int) else int(np.ceil(self.deal_cfg.max_atoms_added * len(atoms)))}"
-                )
+            predict_time = time.perf_counter() - t_pred0
+            self.timers["predict"] += predict_time
 
             steps_since_last = step - self.last_dft_step
+            update_time = 0.0
 
             if (not std_in_bound) and (
                 steps_since_last >= self.deal_cfg.min_steps_with_model
@@ -426,11 +454,6 @@ class DEAL:
                     ase_frame,
                     target_atoms + init_atoms if init_frame else target_atoms,
                 )
-                if self.deal_cfg.debug:
-                    sys.stdout.write(
-                        "\r"
-                        + f"[DEBUG] : step {step+1} : Atoms selected : {target_atoms+init_atoms if init_frame else target_atoms}"
-                    )
                 self.model.update(
                     atoms=atoms,
                     train_atoms=list(target_atoms),
@@ -440,12 +463,79 @@ class DEAL:
                     force_only=self.deal_cfg.force_only,
                     train_hyperparameters=self.deal_cfg.train_hyps,
                 )
-                self.timers["update"] += time.perf_counter() - t_up0
+                update_time = time.perf_counter() - t_up0
+                self.timers["update"] += update_time
+                decision = "select"
+                reason = "uncertainty_above_threshold"
             elif (
                 std_in_bound and init_frame
             ):  # In initial frame case, store selected frame even if stds are okay
                 self.last_dft_step = step
                 self._store_selected_frame(step, ase_frame, target_atoms=init_atoms)
+                decision = "select"
+                reason = "bootstrap_frame"
+            elif not std_in_bound:
+                decision = "defer"
+                reason = "min_steps_with_model"
+            else:
+                decision = "skip"
+                reason = "uncertainty_within_threshold"
+
+            if self.deal_cfg.debug:
+                candidate_indices = (
+                    np.flatnonzero(candidate_mask)
+                    if candidate_mask is not None
+                    else np.arange(len(atoms))
+                )
+                # Selection uses the largest component of atoms.stds, whereas
+                # exported atomic_uncertainty may be a vector norm. Report the
+                # same quantity that actually drives the threshold decision.
+                selection_stds = np.asarray(
+                    [
+                        float(np.max(atoms.stds[index]))
+                        for index in candidate_indices
+                    ]
+                )
+                finite_selection_stds = selection_stds[
+                    np.isfinite(selection_stds)
+                ]
+                max_selection_std = (
+                    float(np.max(finite_selection_stds))
+                    if len(finite_selection_stds)
+                    else float("nan")
+                )
+                atoms_above_update = int(
+                    np.count_nonzero(
+                        finite_selection_stds > self.deal_cfg.update_threshold
+                    )
+                )
+                selected_atoms = (
+                    target_atoms + init_atoms if init_frame else target_atoms
+                )
+                self._debug(
+                    step,
+                    decision=decision,
+                    reason=reason,
+                    max_selection_std=f"{max_selection_std:.6g}",
+                    threshold=f"{self.deal_cfg.threshold:.6g}",
+                    update_threshold=f"{self.deal_cfg.update_threshold:.6g}",
+                    candidates=f"{len(candidate_indices)}/{len(atoms)}",
+                    above_update=atoms_above_update,
+                    target_cap=max_atom_added,
+                    selected_atoms=(
+                        len(selected_atoms) if decision == "select" else 0
+                    ),
+                    train_atoms=len(target_atoms) if decision == "select" else 0,
+                    selected_indices=self._format_atom_indices(
+                        selected_atoms if decision == "select" else []
+                    ),
+                    steps_since_update=(
+                        "bootstrap" if init_frame else steps_since_last
+                    ),
+                    min_steps=self.deal_cfg.min_steps_with_model,
+                    predict_s=f"{predict_time:.3f}",
+                    update_s=f"{update_time:.3f}",
+                )
             # ========== print progress ==========
             elapsed = time.perf_counter() - self.timers["start"]
             step_time = time.perf_counter() - step_start

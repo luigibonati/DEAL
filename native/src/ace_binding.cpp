@@ -178,6 +178,12 @@ PYBIND11_MODULE(_C_deal_sgp, m) {
       .def("predict_local_uncertainties",
            py::overload_cast<Structure &, const std::vector<int>>(
                &SparseGP::predict_local_uncertainties))
+      .def("predict_local_uncertainties_only",
+           py::overload_cast<Structure &>(
+               &SparseGP::predict_local_uncertainties_only))
+      .def("predict_local_uncertainties_only",
+           py::overload_cast<Structure &, const std::vector<int>>(
+               &SparseGP::predict_local_uncertainties_only))
       .def("add_all_environments", &SparseGP::add_all_environments)
       .def("add_specific_environments", &SparseGP::add_specific_environments)
       .def("add_random_environments", &SparseGP::add_random_environments)

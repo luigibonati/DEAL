@@ -80,6 +80,9 @@ public:
   void predict_local_uncertainties(Structure &structure);
   void predict_local_uncertainties(Structure &structure,
                                    const std::vector<int> atom_indices);
+  void predict_local_uncertainties_only(Structure &structure);
+  void predict_local_uncertainties_only(
+      Structure &structure, const std::vector<int> atom_indices);
 
   void compute_likelihood_stable();
   double compute_likelihood_gradient_stable(bool precomputed_KnK = false);

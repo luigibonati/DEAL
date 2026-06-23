@@ -1,4 +1,8 @@
 #include "sparse_gp.h"
+
+#ifdef EIGEN_USE_LAPACKE
+#include <lapacke.h>
+#endif
 #include <algorithm> // Random shuffle
 #include <chrono>
 #include <fstream> // File operations
@@ -698,12 +702,40 @@ void SparseGP ::update_matrices_QR() {
   Eigen::VectorXd b = Eigen::VectorXd::Zero(Kuf.cols() + Kuu.cols());
   b.segment(0, Kuf.cols()) = noise_vector_sqrt.asDiagonal() * y;
 
-  // QR decompose A.
+  // QR decompose A. Use the linked LAPACK implementation when available so
+  // DEAL benefits from the node's optimized, threaded BLAS/LAPACK library.
+  Eigen::MatrixXd R;
+  Eigen::VectorXd Q_b;
+#ifdef EIGEN_USE_LAPACKE
+  Eigen::MatrixXd qr_storage = A;
+  Eigen::VectorXd tau = Eigen::VectorXd::Zero(Kuu.cols());
+  Q_b = b;
+  lapack_int qr_info = LAPACKE_dgeqrf(
+      LAPACK_COL_MAJOR, qr_storage.rows(), qr_storage.cols(),
+      qr_storage.data(), qr_storage.rows(), tau.data());
+  lapack_int qtb_info = 0;
+  if (qr_info == 0) {
+    qtb_info = LAPACKE_dormqr(
+        LAPACK_COL_MAJOR, 'L', 'T', qr_storage.rows(), 1,
+        qr_storage.cols(), qr_storage.data(), qr_storage.rows(), tau.data(),
+        Q_b.data(), Q_b.rows());
+  }
+  if ((qr_info == 0) && (qtb_info == 0)) {
+    R = qr_storage.block(0, 0, Kuu.cols(), Kuu.cols())
+            .triangularView<Eigen::Upper>();
+  } else {
+    Eigen::HouseholderQR<Eigen::MatrixXd> qr(A);
+    Q_b = qr.householderQ().transpose() * b;
+    R = qr.matrixQR().block(0, 0, Kuu.cols(), Kuu.cols())
+            .triangularView<Eigen::Upper>();
+  }
+#else
   Eigen::HouseholderQR<Eigen::MatrixXd> qr(A);
-  Eigen::VectorXd Q_b = qr.householderQ().transpose() * b;
-  R_inv = qr.matrixQR().block(0, 0, Kuu.cols(), Kuu.cols())
-                       .triangularView<Eigen::Upper>()
-                       .solve(Kuu_eye);
+  Q_b = qr.householderQ().transpose() * b;
+  R = qr.matrixQR().block(0, 0, Kuu.cols(), Kuu.cols())
+          .triangularView<Eigen::Upper>();
+#endif
+  R_inv = R.triangularView<Eigen::Upper>().solve(Kuu_eye);
   R_inv_diag = R_inv.diagonal();
   alpha = R_inv * Q_b;
   Sigma = R_inv * R_inv.transpose();
@@ -821,6 +853,17 @@ void SparseGP ::predict_local_uncertainties(Structure &test_structure,
   std::vector<Eigen::VectorXd> local_uncertainties =
       compute_cluster_uncertainties(test_structure, atom_indices);
   test_structure.local_uncertainties = local_uncertainties;
+}
+
+void SparseGP ::predict_local_uncertainties_only(Structure &test_structure) {
+  test_structure.local_uncertainties =
+      compute_cluster_uncertainties(test_structure);
+}
+
+void SparseGP ::predict_local_uncertainties_only(
+    Structure &test_structure, const std::vector<int> atom_indices) {
+  test_structure.local_uncertainties =
+      compute_cluster_uncertainties(test_structure, atom_indices);
 }
 
 void SparseGP ::compute_likelihood_stable() {

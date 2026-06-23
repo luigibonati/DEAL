@@ -22,6 +22,18 @@ def main():
         dft_energy=atoms.get_potential_energy(),
     )
 
+    # The DEAL fast path skips mean energy/force/stress prediction. Its
+    # uncertainty must remain identical to the full calculator path.
+    model.calculator.calculate(atoms=atoms, uncertainty_only=False)
+    reference_stds = model.calculator.results["stds"].copy()
+    model.calculator.calculate(atoms=atoms, uncertainty_only=True)
+    np.testing.assert_allclose(
+        model.calculator.results["stds"], reference_stds, rtol=1e-10, atol=1e-12
+    )
+    assert "energy" not in model.calculator.results
+    assert "forces" not in model.calculator.results
+    assert "stress" not in model.calculator.results
+
     full_uncertainty = model.predict_uncertainty(atoms)
     masked_uncertainty = model.predict_uncertainty(
         atoms, candidate_atoms=candidate_atoms
