@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Internal Readme files
+DEAL_MODEL_ROADMAP.md
+
 # C extensions
 *.so
 

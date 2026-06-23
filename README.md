@@ -83,15 +83,6 @@ conda activate deal
 python -m pip install -e . --no-build-isolation
 ```
 
-If you keep the environment inside a project folder instead of using the named
-conda environment, use a prefix:
-
-```bash
-conda env create -p /path/to/DEAL_3.0/.conda/deal -f environment-deal.yml
-conda activate /path/to/DEAL_3.0/.conda/deal
-python -m pip install -e . --no-build-isolation
-```
-
 ---
 
 ##  Usage
