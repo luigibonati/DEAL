@@ -22,9 +22,33 @@
 #include <Eigen/Dense>
 #include <vector>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 namespace py = pybind11;
 
+py::dict parallel_runtime_info() {
+  py::dict info;
+#ifdef _OPENMP
+  info["openmp_enabled"] = true;
+  info["openmp_version"] = _OPENMP;
+  info["openmp_max_threads"] = omp_get_max_threads();
+  info["openmp_num_procs"] = omp_get_num_procs();
+  info["openmp_dynamic"] = static_cast<bool>(omp_get_dynamic());
+#else
+  info["openmp_enabled"] = false;
+  info["openmp_version"] = py::none();
+  info["openmp_max_threads"] = 1;
+  info["openmp_num_procs"] = py::none();
+  info["openmp_dynamic"] = false;
+#endif
+  return info;
+}
+
 PYBIND11_MODULE(_C_deal_sgp, m) {
+  m.def("parallel_runtime_info", &parallel_runtime_info);
+
   // Structure
   py::class_<Structure>(m, "Structure")
       .def(py::init<const Eigen::MatrixXd &, const std::vector<int> &,
@@ -185,7 +209,11 @@ PYBIND11_MODULE(_C_deal_sgp, m) {
            py::overload_cast<Structure &, const std::vector<int>>(
                &SparseGP::predict_local_uncertainties_only))
       .def("add_all_environments", &SparseGP::add_all_environments)
-      .def("add_specific_environments", &SparseGP::add_specific_environments)
+      .def("add_specific_environments",
+           py::overload_cast<const Structure &, const std::vector<int>>(
+               &SparseGP::add_specific_environments))
+      .def("add_specific_environments_local",
+           &SparseGP::add_specific_environments_local)
       .def("add_random_environments", &SparseGP::add_random_environments)
       .def("add_uncertain_environments",
            &SparseGP::add_uncertain_environments)
@@ -195,6 +223,7 @@ PYBIND11_MODULE(_C_deal_sgp, m) {
                        py::arg("rel_e_noise") = 1.0,
                        py::arg("rel_f_noise") = 1.0,
                        py::arg("rel_s_noise") = 1.0)
+      .def("update_matrices_local", &SparseGP::update_matrices_local)
       .def("update_matrices_QR", &SparseGP::update_matrices_QR)
       .def("compute_likelihood", &SparseGP::compute_likelihood)
       .def("compute_likelihood_stable", &SparseGP::compute_likelihood_stable)

@@ -408,6 +408,26 @@ class SGP_Wrapper:
         if update_qr:
             sgp.update_matrices_QR()
 
+    def update_local_environments(self, structure, custom_range):
+        if isinstance(structure, (Atoms, SGPAtoms)):
+            coded_species = [self.species_map[spec] for spec in structure.numbers]
+        elif isinstance(structure, Structure):
+            coded_species = structure.species
+        else:
+            raise TypeError(f"Unsupported structure type: {type(structure)}")
+
+        structure_descriptor = Structure(
+            structure.cell,
+            coded_species,
+            structure.positions,
+            self.cutoff,
+            self.descriptor_calculators,
+        )
+        self.sparse_gp.add_specific_environments_local(
+            structure_descriptor, list(custom_range)
+        )
+        self.sparse_gp.update_matrices_local()
+
     def set_L_alpha(self):
         # Taken care of in the update_db method.
         pass

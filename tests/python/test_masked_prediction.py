@@ -51,6 +51,22 @@ def main():
     assert np.all(raw_stds[non_candidates] < 0.0)
     assert np.all(raw_stds[candidate_atoms] >= 0.0)
 
+    fast_model = DealActiveLearningModel(SGPConfig(cutoff=5.0, species=species))
+    fast_model.update(
+        atoms,
+        train_atoms=train_atoms,
+        dft_forces=atoms.get_forces(),
+        dft_energy=atoms.get_potential_energy(),
+        local_uncertainty_only=True,
+    )
+    fast_uncertainty = fast_model.predict_uncertainty(atoms)
+    assert fast_model.training_size == 1
+    assert fast_model.gp.sparse_gp.n_labels == 0
+    assert fast_model.gp.sparse_gp.n_sparse == model.gp.sparse_gp.n_sparse
+    np.testing.assert_allclose(
+        fast_uncertainty, full_uncertainty, rtol=1e-12, atol=1e-12
+    )
+
 
 if __name__ == "__main__":
     main()

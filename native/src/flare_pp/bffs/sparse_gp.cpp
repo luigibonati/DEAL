@@ -217,6 +217,17 @@ std::vector<Eigen::VectorXd> SparseGP ::compute_cluster_uncertainties(
 
 void SparseGP ::add_specific_environments(const Structure &structure,
                                           const std::vector<int> atoms) {
+  add_specific_environments(structure, atoms, false);
+}
+
+void SparseGP ::add_specific_environments_local(const Structure &structure,
+                                                const std::vector<int> atoms) {
+  add_specific_environments(structure, atoms, true);
+}
+
+void SparseGP ::add_specific_environments(const Structure &structure,
+                                          const std::vector<int> atoms,
+                                          bool local_only) {
 
   initialize_sparse_descriptors(structure);
 
@@ -252,11 +263,13 @@ void SparseGP ::add_specific_environments(const Structure &structure,
     cluster_descriptors.push_back(cluster_descriptor);
   }
 
-  // Update Kuu and Kuf.
+  // Local uncertainty depends only on Kuu and its Cholesky factor.
   update_Kuu(cluster_descriptors);
-  update_Kuf(cluster_descriptors);
   stack_Kuu();
-  stack_Kuf();
+  if (!local_only) {
+    update_Kuf(cluster_descriptors);
+    stack_Kuf();
+  }
 
   // Store sparse environments.
   for (int i = 0; i < n_kernels; i++) {
@@ -677,10 +690,7 @@ void SparseGP ::stack_Kuf() {
   }
 }
 
-void SparseGP ::update_matrices_QR() {
-  // Store square root of noise vector.
-  Eigen::VectorXd noise_vector_sqrt = sqrt(noise_vector.array());
-
+void SparseGP ::update_matrices(bool local_only) {
   // Cholesky decompose Kuu.
   Eigen::LLT<Eigen::MatrixXd> chol(
       Kuu + Kuu_jitter * Eigen::MatrixXd::Identity(Kuu.rows(), Kuu.cols()));
@@ -689,7 +699,15 @@ void SparseGP ::update_matrices_QR() {
   Eigen::MatrixXd Kuu_eye = Eigen::MatrixXd::Identity(Kuu.rows(), Kuu.cols());
   L_inv = chol.matrixL().solve(Kuu_eye);
   L_diag = L_inv.diagonal();
+
+  if (local_only) {
+    return;
+  }
+
   Kuu_inverse = L_inv.transpose() * L_inv;
+
+  // Store square root of noise vector.
+  Eigen::VectorXd noise_vector_sqrt = sqrt(noise_vector.array());
 
   // Form A matrix.
   Eigen::MatrixXd A =
@@ -740,6 +758,10 @@ void SparseGP ::update_matrices_QR() {
   alpha = R_inv * Q_b;
   Sigma = R_inv * R_inv.transpose();
 }
+
+void SparseGP ::update_matrices_local() { update_matrices(true); }
+
+void SparseGP ::update_matrices_QR() { update_matrices(false); }
 
 void SparseGP ::predict_mean(Structure &test_structure) {
 

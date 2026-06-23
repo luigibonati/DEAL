@@ -14,6 +14,7 @@ from ase.calculators.singlepoint import SinglePointCalculator
 
 from .config import DataConfig, DEALConfig, SGPConfig
 from .model import DealActiveLearningModel
+from .runtime import format_runtime_info
 
 
 class DEAL:
@@ -39,6 +40,12 @@ class DEAL:
         self.configure_run(data_cfg, deal_cfg, sgp_cfg)
 
         if self.deal_cfg.verbose:
+            print(format_runtime_info())
+            if self._use_local_uncertainty_fast_path():
+                print(
+                    "[INFO] Optimization: local uncertainty fast path enabled "
+                    "(training labels, Kuf, posterior mean, and QR are skipped)."
+                )
             print("[INFO] Configurations:")
             print("-", pformat(self.data_cfg))
             print("-", pformat(self.deal_cfg))
@@ -114,6 +121,13 @@ class DEAL:
     # ------------------------------------------------------------------
     # basic helpers
     # ------------------------------------------------------------------
+
+    def _use_local_uncertainty_fast_path(self) -> bool:
+        return (
+            self.sgp_cfg.variance_type == "local"
+            and not self.deal_cfg.train_hyps
+            and not self.deal_cfg.save_gp
+        )
 
     @staticmethod
     def _copy_atoms_with_results(atoms: Atoms) -> Atoms:
@@ -307,7 +321,7 @@ class DEAL:
 
             # 2a) INITIALIZATION: if GP has no training data, use first frame
             #     to bootstrap the model (no uncertainty check).
-            if len(self.gp.training_data) == 0:
+            if self.model.training_size == 0:
                 t_up0 = time.perf_counter()
                 init_frame = True
                 init_candidate_mask = candidate_mask
@@ -374,6 +388,7 @@ class DEAL:
                     dft_stress=dft_stress,
                     force_only=self.deal_cfg.force_only,
                     train_hyperparameters=self.deal_cfg.train_hyps,
+                    local_uncertainty_only=self._use_local_uncertainty_fast_path(),
                 )
                 bootstrap_time = time.perf_counter() - t_up0
                 self.timers["update"] += bootstrap_time
@@ -462,6 +477,7 @@ class DEAL:
                     dft_stress=dft_stress,
                     force_only=self.deal_cfg.force_only,
                     train_hyperparameters=self.deal_cfg.train_hyps,
+                    local_uncertainty_only=self._use_local_uncertainty_fast_path(),
                 )
                 update_time = time.perf_counter() - t_up0
                 self.timers["update"] += update_time

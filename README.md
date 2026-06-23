@@ -169,6 +169,13 @@ sgp:
   cutoff: 4.5
   
 ```
+
+When `variance_type: local`, `train_hyps: false`, and `save_gp: false`, DEAL
+automatically uses a local-uncertainty fast path. Local uncertainty depends only
+on the sparse-environment covariance matrix, so training labels, `Kuf`, posterior
+mean, and QR updates are skipped. Set `save_gp: true` or `train_hyps: true` when
+a complete trainable/predictive GP model is required.
+
 If you want to restrict DEAL to atoms selected by an external uncertainty
 estimate, prepare the trajectory first with `deal-mask`:
 

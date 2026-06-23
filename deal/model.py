@@ -26,10 +26,11 @@ class DealActiveLearningModel:
         self.config = config
         self.calculator, self.kernels = self._build_sgp_calculator(asdict(config))
         self.gp = self.calculator.gp_model
+        self._update_count = 0
 
     @property
     def training_size(self) -> int:
-        return len(self.gp.training_data)
+        return max(len(self.gp.training_data), self._update_count)
 
     @property
     def force_noise(self) -> float:
@@ -146,7 +147,13 @@ class DealActiveLearningModel:
         dft_stress: np.ndarray | None = None,
         force_only: bool = True,
         train_hyperparameters: bool = False,
+        local_uncertainty_only: bool = False,
     ) -> None:
+        if local_uncertainty_only:
+            self.gp.update_local_environments(atoms, train_atoms)
+            self._update_count += 1
+            return
+
         sgp_stress = self._to_sgp_stress(dft_stress)
         if force_only:
             dft_energy = None
@@ -168,6 +175,7 @@ class DealActiveLearningModel:
             stress=np.zeros(6) if sgp_stress is None else sgp_stress,
         )
         self.gp.set_L_alpha()
+        self._update_count += 1
 
         if train_hyperparameters:
             self.gp.train(logger_name=None)

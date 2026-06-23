@@ -54,6 +54,8 @@ public:
 
   void add_specific_environments(const Structure &structure,
                                  const std::vector<int> atoms);
+  void add_specific_environments_local(const Structure &structure,
+                                       const std::vector<int> atoms);
   void add_random_environments(const Structure &structure,
                                const std::vector<int> &n_added);
   void add_uncertain_environments(const Structure &structure,
@@ -72,6 +74,7 @@ public:
   void stack_Kuu();
   void stack_Kuf();
 
+  void update_matrices_local();
   void update_matrices_QR();
 
   void predict_mean(Structure &structure);
@@ -118,6 +121,12 @@ public:
 
   static void to_json(std::string file_name, const SparseGP & sgp);
   static SparseGP from_json(std::string file_name);
+
+private:
+  void add_specific_environments(const Structure &structure,
+                                 const std::vector<int> atoms,
+                                 bool local_only);
+  void update_matrices(bool local_only);
 };
 
 #endif
