@@ -5,6 +5,7 @@ import numpy as np
 
 from .config import DataConfig, DEALConfig, SGPConfig
 from .core import DEAL
+from .preprocessing import TrajectoryMasker, write_preprocessed_trajectory
 
 
 def parse_args():
@@ -44,6 +45,29 @@ def parse_args():
             "or pass a per-atom array name."
         ),
     )
+    parser.add_argument(
+        "--preprocess-key",
+        help="Per-atom array from which to derive the candidate mask in memory.",
+    )
+    parser.add_argument(
+        "--preprocess-mask-threshold",
+        type=float,
+        help="Fixed atom-mask threshold used by preprocessing.",
+    )
+    parser.add_argument(
+        "--preprocess-mode",
+        choices=["above", "below", "between", "outside"],
+        help="Comparison used by in-memory mask preprocessing.",
+    )
+    parser.add_argument(
+        "--preprocess-mask-upper-threshold",
+        type=float,
+        help="Upper bound required by between/outside preprocessing modes.",
+    )
+    parser.add_argument(
+        "--preprocess-plot",
+        help="Write the preprocessing plot: true, false, or an output filename.",
+    )
 
     return parser.parse_args()
 
@@ -55,6 +79,60 @@ def _parse_mask_arg(value: str):
     if lowered in {"false", "no", "0"}:
         return False
     return value
+
+
+def _parse_bool_or_filename(value: str):
+    lowered = value.lower()
+    if lowered in {"true", "yes", "1"}:
+        return True
+    if lowered in {"false", "no", "0"}:
+        return False
+    return value
+
+
+def _apply_preprocessing(data_cfg: DataConfig, config: dict) -> None:
+    """Derive a candidate mask directly on the loaded trajectory."""
+    if not config:
+        return
+
+    missing = [name for name in ("key",) if name not in config]
+    if missing:
+        names = ", ".join(repr(name) for name in missing)
+        raise ValueError(
+            f"Preprocessing requires {names}."
+        )
+
+    config = dict(config)
+    output = config.pop("output", None)
+    overwrite = config.pop("overwrite", False)
+    output_format = config.pop("output_format", None)
+    masker = TrajectoryMasker(**config)
+    summary = masker.apply_to_trajectory(data_cfg.images or [])
+    print(
+        "[DEAL preprocessing] "
+        f"frames={summary.n_frames} "
+        f"atoms={summary.n_atoms} "
+        f"selected_atoms={summary.n_selected_atoms} "
+        f"frames_with_selection={summary.n_frames_with_selection} "
+        f"selected_fraction={summary.selected_fraction:.6f}"
+    )
+    if summary.lower_threshold is not None:
+        print(
+            "[DEAL preprocessing] "
+            f"lower_threshold={summary.lower_threshold:.6g} "
+            f"upper_threshold={summary.upper_threshold:.6g}"
+        )
+    if summary.plot_file is not None:
+        print(f"[DEAL preprocessing] plot={summary.plot_file}")
+    if output is not None:
+        written = write_preprocessed_trajectory(
+            data_cfg.images or [],
+            output,
+            file_format=output_format,
+            overwrite=overwrite,
+        )
+        status = "saved" if written else "kept existing"
+        print(f"[DEAL preprocessing] trajectory={output} ({status})")
 
 
 def _run_incremental_cli(data_cfg: DataConfig, deal_dict: dict, sgp_cfg: SGPConfig) -> None:
@@ -145,7 +223,7 @@ def main() -> None:
             cfg_dict = yaml.safe_load(f) or {}
 
     # Initialize dicts if not available
-    for key in ["data", "deal", "sgp"]:
+    for key in ["data", "preprocessing", "deal", "sgp"]:
         if key not in cfg_dict:
             cfg_dict[key] = {}
     # Overwrite / fill from CLI options
@@ -157,6 +235,29 @@ def main() -> None:
         cfg_dict["deal"]["max_selected"] = args.max_selected
     if args.mask is not None:
         cfg_dict["deal"]["mask"] = _parse_mask_arg(args.mask)
+    if args.preprocess_key is not None:
+        cfg_dict["preprocessing"]["key"] = args.preprocess_key
+    if args.preprocess_mask_threshold is not None:
+        cfg_dict["preprocessing"]["mask_threshold"] = (
+            args.preprocess_mask_threshold
+        )
+    if args.preprocess_mode is not None:
+        cfg_dict["preprocessing"]["mode"] = args.preprocess_mode
+    if args.preprocess_mask_upper_threshold is not None:
+        cfg_dict["preprocessing"]["mask_upper_threshold"] = (
+            args.preprocess_mask_upper_threshold
+        )
+    if args.preprocess_plot is not None:
+        cfg_dict["preprocessing"]["plot"] = _parse_bool_or_filename(
+            args.preprocess_plot
+        )
+
+    # A custom preprocessing output should be consumed automatically unless
+    # the user explicitly selected or disabled a DEAL mask.
+    if cfg_dict["preprocessing"] and "mask" not in cfg_dict["deal"]:
+        cfg_dict["deal"]["mask"] = cfg_dict["preprocessing"].get(
+            "mask_key", "deal_mask"
+        )
 
     # Check file
     try:
@@ -169,6 +270,7 @@ def main() -> None:
 
     # Build data/SGP configs
     data_cfg = DataConfig(**cfg_dict["data"])
+    _apply_preprocessing(data_cfg, cfg_dict["preprocessing"])
     sgp_cfg = SGPConfig(**cfg_dict["sgp"])
 
     deal_dict = dict(cfg_dict["deal"])

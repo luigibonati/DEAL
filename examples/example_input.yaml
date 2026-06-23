@@ -5,6 +5,16 @@ data:
   shuffle: false          # whether to shuffle the frames before processing (suggested true for MD data)
   seed: 42
 
+# Optional in-memory preselection from a per-atom uncertainty array:
+# preprocessing:
+#   key: force_std_comp_max
+#   mask_key: deal_mask
+#   plot: true              # true, false, or a filename
+#   output: traj_preprocessed.xyz # optional reusable masked trajectory
+#   overwrite: false        # do not replace an existing file by default
+# Omit mask_threshold to use automatic frame thresholds (1.1x and 4x mean maximum)
+# and a per-frame atom threshold of 0.3x that frame's maximum.
+
 deal:
   threshold: 0.1          #can be a single value or a list of values
   

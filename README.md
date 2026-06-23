@@ -136,6 +136,18 @@ data:
   #shuffle: false          # whether to shuffle the frames before processing 
   #seed: 42
 
+# Optional: derive the candidate mask in memory from an existing per-atom
+# uncertainty array. This avoids writing an intermediate masked trajectory.
+#preprocessing:
+#  key: force_std_comp_max
+#  mask_threshold: 0.05    # omit for automatic thresholds (recommended)
+#  mode: above              # above, below, between, or outside
+#  mask_key: deal_mask
+#  mask_upper_threshold: 0.10 # required for between/outside
+#  plot: true               # true, false, or an output filename
+#  output: traj_preprocessed.xyz # optional; also honored by `deal -c`
+#  overwrite: false         # preserve an existing output by default
+
 deal:
   threshold: 0.1          # standard mode: scalar or list of values
   # OR
@@ -184,12 +196,68 @@ deal-mask \
   -f traj_with_uncertainty.xyz \
   -o traj_with_deal_mask.xyz \
   -k force_std_comp_max \
-  -t 0.05 \
+  --mask-threshold 0.05 \
   --mode above \
   --mask-key deal_mask
 ```
 
 Then run DEAL on `traj_with_deal_mask.xyz` with `deal.mask: true`.
+
+`deal-mask` can read the same YAML used by `deal`:
+
+```bash
+deal-mask -c input.yaml
+```
+
+It reads the complete `data:` and `preprocessing:` blocks. Command-line
+arguments override their YAML counterparts. If `preprocessing.output` is not
+set, the output defaults to `<input_stem>_preprocessed<input_suffix>`.
+
+The same preprocessing can be performed as part of a normal DEAL run:
+
+```yaml
+data:
+  files: ["traj_with_uncertainty.xyz"]
+preprocessing:
+  key: force_std_comp_max
+  mask_key: deal_mask
+  plot: true
+  output: traj_with_deal_mask.xyz
+  overwrite: false
+deal:
+  threshold: 0.1
+  mask: true
+```
+
+When `mask_threshold` is omitted, DEAL follows the automatic rule from
+`Preprocessing/evaulate_traj.ipynb`: it computes the mean of the maximum
+per-atom uncertainty in each frame, selects frames whose maximum lies between
+`1.1` and `4.0` times that mean, and selects atoms above `0.3` times their
+frame's maximum. These constants can be changed with `lower_factor`,
+`upper_factor`, and `mask_fraction`.
+
+During the initial stage of active learning, query-by-committee uncertainty may
+not yet be reliable because the committee has been trained on limited data. For
+a safer, broader preselection in this regime, reduce `lower_factor` to a value
+in the `0.5–0.9` range and `upper_factor` to a value in the `1.5–3.0` range.
+Reassess these factors as the training set grows and the uncertainty estimates
+become better calibrated.
+
+`plot` defaults to `true` and writes `preprocessing_selection.png`. Set it to
+`false` to disable plotting or to a filename such as
+`plots/my_preselection.png`. The plot compares all and selected atom/frame
+uncertainty distributions and shows the automatic frame thresholds.
+
+`output` optionally saves the masked trajectory from either `deal -c` or
+`deal-mask -c`. Existing files are preserved by default; set `overwrite: true`
+or pass `deal-mask --overwrite` to replace one. This makes repeated DEAL runs
+safe while retaining a reusable preprocessed trajectory when requested.
+
+CLI equivalents are `--preprocess-key`, `--preprocess-mask-threshold`,
+`--preprocess-mode`, `--preprocess-mask-upper-threshold`, and
+`--preprocess-plot`.
+The mask is added to the loaded frames in memory, so no intermediate trajectory
+is written.
 
 One can also use a base config file and override via CLI the options:
 ```bash
