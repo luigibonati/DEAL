@@ -29,7 +29,7 @@ Run DEAL with different thresholds
 deal -c input.yaml
 ```
 Consider running it on a HPC cluster or on a large-memory machine.
-An example SLURM script to run DEAL on Daint@Alps-CSCS HPC system is provdied for [`N2 example`](../1_activelearning_N2/README.md).
+An example SLURM script to run DEAL on the Daint@Alps-CSCS HPC system is provided for the [`N2 example`](../1_activelearning_N2/README.md).
 
 #### Chemiscope
 Create chemiscope files from DEAL outputs
@@ -38,8 +38,7 @@ deal-chemiscope --trajectory b_selection/deal_0.15_selected.xyz --colvar a_input
 ```
 
 #### Analyze results
-The selection can be analyzed with the jupyter notebook [`formate-subsampling.ipynb`](`formate-subsampling.ipynb`).
+The selection can be analyzed with the Jupyter notebook [`formate-subsampling.ipynb`](formate-subsampling.ipynb).
 
 The generated `*_chemiscope.json.gz` files can be directly visualized online at https://chemiscope.org/
-
 

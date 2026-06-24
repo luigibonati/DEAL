@@ -25,7 +25,7 @@ A short practical [introduction](DEAL.md) describes the main ingredients (SGP, l
     <img src="imgs/analysis.png" alt="drawing" width="824"/>
 * Interactive visualization using [chemiscope](https://chemiscope.org/)
 
-    <a href="https://chemiscope.org/?load=https://raw.githubusercontent.com/luigibonati/DEAL/refs/heads/main/examples/2_subsampling_formate/selection/deal_0.1_chemiscope.json.gz"> <img src="imgs/chemiscope-viewer.png" alt="drawing" width="412"></a>
+    <a href="https://chemiscope.org/?load=https://raw.githubusercontent.com/luigibonati/DEAL/refs/heads/main/examples/2_subsampling_formate/b_selection/deal_0.15_chemiscope.json.gz"> <img src="imgs/chemiscope-viewer.png" alt="drawing" width="412"></a>
 
 ---
 
@@ -39,7 +39,7 @@ A short practical [introduction](DEAL.md) describes the main ingredients (SGP, l
   - [Python usage](#python-usage)
   - [Multiple thresholds](#multiple-thresholds)
   - [Incremental selection (CLI)](#incremental-selection-cli)
-- [Files]((#files))
+- [Files](#files)
   - [Input files](#input-files)
   - [Output files](#output-files)
   - [Create a chemiscope file](#create-a-chemiscope-file)
@@ -50,7 +50,7 @@ A short practical [introduction](DEAL.md) describes the main ingredients (SGP, l
 ## 📚 Contents
 
 * **`deal/`** – The core Python package.
-* **`examples/`** – Two realistic workflows demonstrating how to use DEAL in practice.
+* **`examples/`** – Four realistic workflows demonstrating how to use DEAL in practice.
 * **`npj_supporting_data/`** – Jupyter notebooks reproducing the full workflow described in the publication, including the use of Gaussian Process Regression for reaction-pathway exploration.
 * **`tests/`** – A test suite to verify that the installation is correct and all components work as expected.
 
@@ -58,11 +58,14 @@ A short practical [introduction](DEAL.md) describes the main ingredients (SGP, l
 
 DEAL requires:
 
-* Python 3.10, as specified in `environment-deal.yml`
+* Python 3.10 or newer (tested with Python 3.10, 3.12, and 3.14)
 * DEAL's native sparse-GP extension, built during installation
 * `ase`
 * `pandas`
 * `numpy`
+* `scipy`
+* `pyyaml`
+* `matplotlib`
 * `chemiscope` (for visualization)
 
 ---
@@ -82,6 +85,10 @@ conda env create -f environment-deal.yml
 conda activate deal
 python -m pip install -e . --no-build-isolation
 ```
+
+The environment file leaves software versions unpinned so Conda resolves the
+latest mutually compatible releases. CI uses the same file and tests it with
+Python 3.10, 3.12, and 3.14.
 
 ---
 

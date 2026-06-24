@@ -213,15 +213,15 @@ class Trajectory(StructureSource, ForceSource):
     ):
         if frames is None:
             frames = []
-        self.frames = frames
+        self.frames = list(frames)
         self.cur_idx = 0
         self.iterate_strategy = iterate_strategy
         self.seen_before = []
 
         if self.iterate_strategy == "shuffle":
-            self.frames = np.random.shuffle(frames)
+            np.random.shuffle(self.frames)
         if isinstance(iterate_strategy, int):
-            self.frames = frames[::iterate_strategy]
+            self.frames = self.frames[::iterate_strategy]
 
     def get_next_structure(self) -> Union[SGPAtoms, None]:
 
@@ -248,7 +248,7 @@ class Trajectory(StructureSource, ForceSource):
         :param index:
         :return:
         """
-        if index != 1:
+        if index != -1:
             return self.cur_frame.forces[index]
         return self.cur_frame.forces
 

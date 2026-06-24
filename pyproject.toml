@@ -27,6 +27,9 @@ dependencies = [
     "chemiscope",
     "ipykernel",
     "matplotlib",
+    "numpy",
+    "pyyaml",
+    "scipy",
 ]
 
 [project.urls]

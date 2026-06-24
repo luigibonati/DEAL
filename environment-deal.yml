@@ -2,9 +2,8 @@ name: deal
 channels:
   - conda-forge
 dependencies:
-  - python=3.10
   - pip
-  - cmake>=3.18
+  - cmake
   - ninja
   - scikit-build-core
   - pybind11
@@ -15,13 +14,12 @@ dependencies:
   - llvm-openmp
   - liblapacke
   - openblas
-  - numpy>=1.18,<1.23
+  - numpy
   - scipy
   - pyyaml
-  - ase=3.22.0
+  - ase
   - pandas
   - ipykernel
+  - matplotlib
   - pytest
-  - pytest-mock
   - chemiscope
-  - nptyping
