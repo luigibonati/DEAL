@@ -34,7 +34,7 @@ jobs:
 
       - name: Install DEAL build dependencies
         run: |
-          conda install -y cmake ninja scikit-build-core pybind11 nlohmann_json eigen c-compiler cxx-compiler openmp liblapacke openblas -c conda-forge
+          conda install -y pip cmake ninja scikit-build-core pybind11 nlohmann_json eigen c-compiler cxx-compiler openmp liblapacke openblas -c conda-forge
 
       - name: Install DEAL
         run: |
