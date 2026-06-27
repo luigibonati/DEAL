@@ -1,6 +1,8 @@
 #include "structure.h"
+#include <algorithm>
 #include <fstream> // File operations
 #include <iostream>
+#include <stdexcept>
 
 Structure ::Structure() {}
 
@@ -14,6 +16,10 @@ Structure ::Structure(const Eigen::MatrixXd &cell,
   single_sweep_cutoff = get_single_sweep_cutoff();
   volume = abs(cell.determinant());
   noa = species.size();
+  center_indices.resize(noa);
+  for (int i = 0; i < noa; i++) {
+    center_indices[i] = i;
+  }
 
   cell_transpose = cell.transpose();
   cell_transpose_inverse = cell_transpose.inverse();
@@ -42,6 +48,37 @@ Structure ::Structure(const Eigen::MatrixXd &cell,
   compute_descriptors();
 }
 
+Structure ::Structure(const Eigen::MatrixXd &cell,
+                      const std::vector<int> &species,
+                      const Eigen::MatrixXd &positions, double cutoff,
+                      std::vector<Descriptor *> descriptor_calculators,
+                      const std::vector<int> &center_indices)
+    : Structure(cell, species, positions) {
+  this->cutoff = cutoff;
+  this->descriptor_calculators = descriptor_calculators;
+  set_center_indices(center_indices);
+  sweep = ceil(cutoff / single_sweep_cutoff);
+
+  neighbor_count = Eigen::VectorXi::Zero(noa);
+  cumulative_neighbor_count = Eigen::VectorXi::Zero(noa + 1);
+
+  compute_neighbors();
+  compute_descriptors();
+}
+
+void Structure ::set_center_indices(const std::vector<int> &indices) {
+  center_indices = indices;
+  std::sort(center_indices.begin(), center_indices.end());
+  center_indices.erase(
+      std::unique(center_indices.begin(), center_indices.end()),
+      center_indices.end());
+  for (int index : center_indices) {
+    if (index < 0 || index >= noa) {
+      throw std::invalid_argument("Descriptor center index is out of range.");
+    }
+  }
+}
+
 void Structure ::compute_descriptors(){
   descriptors.clear();
   for (int i = 0; i < descriptor_calculators.size(); i++){
@@ -54,15 +91,18 @@ void Structure ::compute_neighbors() {
   // of all candidate neighbors.
   int sweep_unit = 2 * sweep + 1;
   int sweep_no = sweep_unit * sweep_unit * sweep_unit;
+  int n_centers = center_indices.size();
   Eigen::MatrixXd all_positions =
-      Eigen::MatrixXd::Zero(noa * noa * sweep_no, 4);
-  Eigen::VectorXi all_indices = Eigen::VectorXi::Zero(noa * noa * sweep_no);
+    Eigen::MatrixXd::Zero(n_centers * noa * sweep_no, 4);
+  Eigen::VectorXi all_indices =
+    Eigen::VectorXi::Zero(n_centers * noa * sweep_no);
 
 // Compute neighbor lists and relative positions.
 #pragma omp parallel for
-  for (int i = 0; i < noa; i++) {
+  for (int center_slot = 0; center_slot < n_centers; center_slot++) {
+    int i = center_indices[center_slot];
     Eigen::MatrixXd pos_atom = wrapped_positions.row(i);
-    int i_index = i * noa * sweep_no;
+    int i_index = center_slot * noa * sweep_no;
     int counter = 0;
     for (int j = 0; j < noa; j++) {
       Eigen::MatrixXd diff_curr = wrapped_positions.row(j) - pos_atom;
@@ -102,10 +142,11 @@ void Structure ::compute_neighbors() {
   structure_indices = Eigen::VectorXi::Zero(n_neighbors);
   neighbor_species = Eigen::VectorXi::Zero(n_neighbors);
 #pragma omp parallel for
-  for (int i = 0; i < noa; i++) {
+  for (int center_slot = 0; center_slot < n_centers; center_slot++) {
+    int i = center_indices[center_slot];
     int n_neighbors = neighbor_count(i);
     int rel_index = cumulative_neighbor_count(i);
-    int all_index = i * noa * sweep_no;
+    int all_index = center_slot * noa * sweep_no;
     for (int j = 0; j < n_neighbors; j++) {
       int current_index = all_indices(all_index + j);
       structure_indices(rel_index + j) = current_index;

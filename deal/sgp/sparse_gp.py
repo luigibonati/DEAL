@@ -78,6 +78,13 @@ class SGP_Wrapper:
     def training_data(self):
         return self.sparse_gp.training_structures
 
+    def supports_center_subset(self):
+        """Whether descriptors can be constructed for selected centres only."""
+        return bool(self.descriptor_calculators) and all(
+            isinstance(descriptor, B2)
+            for descriptor in self.descriptor_calculators
+        )
+
     @property
     def hyps(self):
         return self.sparse_gp.hyperparameters
@@ -416,13 +423,17 @@ class SGP_Wrapper:
         else:
             raise TypeError(f"Unsupported structure type: {type(structure)}")
 
-        structure_descriptor = Structure(
+        structure_args = (
             structure.cell,
             coded_species,
             structure.positions,
             self.cutoff,
             self.descriptor_calculators,
         )
+        if self.supports_center_subset():
+            structure_descriptor = Structure(*structure_args, list(custom_range))
+        else:
+            structure_descriptor = Structure(*structure_args)
         self.sparse_gp.add_specific_environments_local(
             structure_descriptor, list(custom_range)
         )

@@ -3,6 +3,7 @@ from ase.io import read
 
 from deal import SGPConfig
 from deal.model import DealActiveLearningModel
+from deal.sgp._C_sgp import Structure
 
 
 def main():
@@ -38,6 +39,25 @@ def main():
     masked_uncertainty = model.predict_uncertainty(
         atoms, candidate_atoms=candidate_atoms
     )
+
+    coded_species = [model.gp.species_map[int(z)] for z in atoms.numbers]
+    centered_structure = Structure(
+        atoms.cell,
+        coded_species,
+        atoms.positions,
+        model.gp.cutoff,
+        model.gp.descriptor_calculators,
+        candidate_atoms,
+    )
+    centered_descriptor = centered_structure.descriptors[0]
+    assert centered_structure.center_indices == sorted(candidate_atoms)
+    assert sum(centered_descriptor.n_clusters_by_type) == len(candidate_atoms)
+    descriptor_atom_indices = sorted(
+        int(index)
+        for indices in centered_descriptor.atom_indices
+        for index in indices
+    )
+    assert descriptor_atom_indices == sorted(candidate_atoms)
 
     np.testing.assert_allclose(
         masked_uncertainty[candidate_atoms],

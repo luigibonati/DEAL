@@ -358,6 +358,11 @@ from GP uncertainty prediction and written with `atomic_uncertainty = -1.0`.
 Frames with no eligible atoms are skipped. If `mask: false`, every atom is
 eligible.
 
+With the B2 descriptor, masked prediction and local GP updates construct native
+neighbour lists and descriptors only for eligible central atoms. All atoms remain
+available as neighbours, so masked results are identical to filtering the full
+calculation while the descriptor cost scales with the number of candidates.
+
 ### Create a chemiscope file
 
 After running `deal`, one can create a chemiscope visualization file with:

@@ -99,13 +99,13 @@ DescriptorValues B2 ::compute_struc(Structure &structure) {
 
   compute_b2(B2_vals, B2_force_dervs, B2_norms, B2_force_dots, single_bond_vals,
              force_dervs, unique_neighbor_count, cumulative_neighbor_count,
-             descriptor_indices, nos, N, lmax);
+             descriptor_indices, nos, N, lmax, structure.center_indices);
 
   // Gather species information.
   int noa = structure.noa;
   Eigen::VectorXi species_count = Eigen::VectorXi::Zero(nos);
   Eigen::VectorXi neighbor_count = Eigen::VectorXi::Zero(nos);
-  for (int i = 0; i < noa; i++) {
+  for (int i : structure.center_indices) {
     int s = structure.species[i];
     int n_neigh = unique_neighbor_count(i);
     species_count(s)++;
@@ -148,7 +148,7 @@ DescriptorValues B2 ::compute_struc(Structure &structure) {
   // Assign to structure.
   Eigen::VectorXi species_counter = Eigen::VectorXi::Zero(nos);
   Eigen::VectorXi neighbor_counter = Eigen::VectorXi::Zero(nos);
-  for (int i = 0; i < noa; i++) {
+  for (int i : structure.center_indices) {
     int s = structure.species[i];
     int s_count = species_counter(s);
     int n_neigh = unique_neighbor_count(i);
@@ -187,6 +187,25 @@ void compute_b2(Eigen::MatrixXd &B2_vals, Eigen::MatrixXd &B2_force_dervs,
                 const Eigen::VectorXi &descriptor_indices, int nos, int N,
                 int lmax) {
 
+  std::vector<int> center_indices(single_bond_vals.rows());
+  for (int i = 0; i < single_bond_vals.rows(); i++) {
+    center_indices[i] = i;
+  }
+  compute_b2(B2_vals, B2_force_dervs, B2_norms, B2_force_dots,
+             single_bond_vals, single_bond_force_dervs,
+             unique_neighbor_count, cumulative_neighbor_count,
+             descriptor_indices, nos, N, lmax, center_indices);
+}
+
+void compute_b2(Eigen::MatrixXd &B2_vals, Eigen::MatrixXd &B2_force_dervs,
+                Eigen::VectorXd &B2_norms, Eigen::VectorXd &B2_force_dots,
+                const Eigen::MatrixXd &single_bond_vals,
+                const Eigen::MatrixXd &single_bond_force_dervs,
+                const Eigen::VectorXi &unique_neighbor_count,
+                const Eigen::VectorXi &cumulative_neighbor_count,
+                const Eigen::VectorXi &descriptor_indices, int nos, int N,
+                int lmax, const std::vector<int> &center_indices) {
+
   int n_atoms = single_bond_vals.rows();
   int n_neighbors = cumulative_neighbor_count(n_atoms);
   int n_radial = nos * N;
@@ -200,8 +219,10 @@ void compute_b2(Eigen::MatrixXd &B2_vals, Eigen::MatrixXd &B2_force_dervs,
   B2_norms = Eigen::VectorXd::Zero(n_atoms);
   B2_force_dots = Eigen::VectorXd::Zero(n_neighbors * 3);
 
+  int n_centers = center_indices.size();
 #pragma omp parallel for
-  for (int atom = 0; atom < n_atoms; atom++) {
+  for (int center_slot = 0; center_slot < n_centers; center_slot++) {
+    int atom = center_indices[center_slot];
     int n_atom_neighbors = unique_neighbor_count(atom);
     int force_start = cumulative_neighbor_count(atom) * 3;
     int n1, n2, l, m, n1_l, n2_l;

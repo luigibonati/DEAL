@@ -51,13 +51,17 @@ class SGP_Calculator(Calculator):
             coded_species.append(self.gp_model.species_map[spec])
 
         # Create structure descriptor.
-        structure_descriptor = Structure(
+        structure_args = (
             atoms.cell,
             coded_species,
             atoms.positions,
             self.gp_model.cutoff,
             self.gp_model.descriptor_calculators,
         )
+        if atom_indices is not None and self.gp_model.supports_center_subset():
+            structure_descriptor = Structure(*structure_args, list(atom_indices))
+        else:
+            structure_descriptor = Structure(*structure_args)
 
         self.predict_on_structure(
             structure_descriptor,

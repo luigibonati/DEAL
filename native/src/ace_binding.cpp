@@ -56,9 +56,13 @@ PYBIND11_MODULE(_C_deal_sgp, m) {
       .def(py::init<const Eigen::MatrixXd &, const std::vector<int> &,
                     const Eigen::MatrixXd &, double,
                     std::vector<Descriptor *>>())
+      .def(py::init<const Eigen::MatrixXd &, const std::vector<int> &,
+                    const Eigen::MatrixXd &, double,
+                    std::vector<Descriptor *>, const std::vector<int> &>())
       .def_readwrite("noa", &Structure::noa)
       .def_readwrite("cell", &Structure::cell)
       .def_readwrite("species", &Structure::species)
+      .def_readwrite("center_indices", &Structure::center_indices)
       .def_readwrite("positions", &Structure::positions)
       .def_readwrite("cell_transpose", &Structure::cell_transpose)
       .def_readwrite("wrapped_positions", &Structure::wrapped_positions)

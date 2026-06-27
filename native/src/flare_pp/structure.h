@@ -52,6 +52,13 @@ public:
   std::vector<int> species;
 
   /**
+   * Atom indices used as descriptor centres. All atoms remain available as
+   * neighbours, but neighbour lists and descriptors are built only for these
+   * centres.
+   */
+  std::vector<int> center_indices;
+
+  /**
    * Number of atoms in the structure.
    */
   int noa;
@@ -96,10 +103,16 @@ public:
             const Eigen::MatrixXd &positions, double cutoff,
             std::vector<Descriptor *> descriptor_calculators);
 
+  Structure(const Eigen::MatrixXd &cell, const std::vector<int> &species,
+            const Eigen::MatrixXd &positions, double cutoff,
+            std::vector<Descriptor *> descriptor_calculators,
+            const std::vector<int> &center_indices);
+
   Eigen::MatrixXd wrap_positions();
   double get_single_sweep_cutoff();
   void compute_neighbors();
   void compute_descriptors();
+  void set_center_indices(const std::vector<int> &center_indices);
 
   NLOHMANN_DEFINE_TYPE_INTRUSIVE(Structure, neighbor_count,
     cutoff, cumulative_neighbor_count, structure_indices, neighbor_species,
