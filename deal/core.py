@@ -204,7 +204,7 @@ class DEAL:
 
     def _get_candidate_mask(self, ase_frame) -> Optional[np.ndarray]:
         """Return a boolean candidate mask from the configured frame array."""
-        if self.deal_cfg.mask is False:
+        if self.deal_cfg.mask is None or self.deal_cfg.mask is False:
             return None
 
         key = "deal_mask" if self.deal_cfg.mask is True else self.deal_cfg.mask

@@ -110,10 +110,10 @@ class DEALConfig:
     #
     min_steps_with_model: int = 0  # frames between two selections
 
-    mask: bool | str = True
-    # Candidate atom mask. False means all atoms are eligible. True means read
-    # the default preprocessing array "deal_mask". A string means read that
-    # per-atom array from each frame and keep atoms with nonzero values.
+    mask: bool | str | None = None
+    # Candidate atom mask. None/False means all atoms are eligible. The CLI
+    # resolves None to the preprocessing mask when preprocessing is configured.
+    # True means read "deal_mask"; a string means read that per-atom array.
 
     initial_atoms: Optional[List[int] | float] = None
     # atoms to use for initial training. Allowed values:
@@ -134,6 +134,14 @@ class DEALConfig:
 
     # --- Validation of parameters ---
     def __post_init__(self):
+        # YAML only recognizes ``null``/``~`` as null values; accept the
+        # commonly used ``none`` spelling as well for backwards compatibility.
+        if isinstance(self.update_threshold, str) and self.update_threshold.lower() in {
+            "none",
+            "null",
+        }:
+            self.update_threshold = None
+
         if not isinstance(self.threshold, Real):
             raise TypeError(
                 f"'threshold' must be a scalar float/int, got {type(self.threshold)}."
@@ -164,9 +172,12 @@ class DEALConfig:
                 f"'max_iterations' must be >= 1, got {self.max_iterations}."
             )
 
-        if not (isinstance(self.mask, bool) or isinstance(self.mask, str)):
+        if self.mask is not None and not (
+            isinstance(self.mask, bool) or isinstance(self.mask, str)
+        ):
             raise TypeError(
-                f"'mask' must be true/false or a per-atom array name, got {type(self.mask)}."
+                "'mask' must be null, true/false, or a per-atom array name, "
+                f"got {type(self.mask)}."
             )
         if isinstance(self.mask, str) and self.mask == "":
             raise ValueError("'mask' cannot be an empty string.")

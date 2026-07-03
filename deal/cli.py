@@ -74,6 +74,8 @@ def parse_args():
 
 def _parse_mask_arg(value: str):
     lowered = value.lower()
+    if lowered in {"none", "null"}:
+        return None
     if lowered in {"true", "yes", "1"}:
         return True
     if lowered in {"false", "no", "0"}:
@@ -88,6 +90,13 @@ def _parse_bool_or_filename(value: str):
     if lowered in {"false", "no", "0"}:
         return False
     return value
+
+
+def _resolve_default_mask(config: dict) -> None:
+    """Use a configured preprocessing mask when DEAL's mask is automatic."""
+    preprocessing = config["preprocessing"]
+    if preprocessing and config["deal"].get("mask") is None:
+        config["deal"]["mask"] = preprocessing.get("mask_key", "deal_mask")
 
 
 def _apply_preprocessing(data_cfg: DataConfig, config: dict) -> None:
@@ -252,12 +261,9 @@ def main() -> None:
             args.preprocess_plot
         )
 
-    # A custom preprocessing output should be consumed automatically unless
-    # the user explicitly selected or disabled a DEAL mask.
-    if cfg_dict["preprocessing"] and "mask" not in cfg_dict["deal"]:
-        cfg_dict["deal"]["mask"] = cfg_dict["preprocessing"].get(
-            "mask_key", "deal_mask"
-        )
+    # A preprocessing mask should be consumed automatically unless the user
+    # explicitly selected or disabled a DEAL mask. ``null`` means automatic.
+    _resolve_default_mask(cfg_dict)
 
     # Check file
     try:

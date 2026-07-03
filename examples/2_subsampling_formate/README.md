@@ -19,7 +19,7 @@ bash get_data.sh
 #### Colvar (optional)
 Evaluate relevant CVs (e.g. coordination numbers) using PLUMED
 ```bash
-plumed driver --plumed plumed.dat --ixyz ../input/fcu.xyz --length-units A --box 10.638,10.03,30.0
+plumed driver --plumed plumed.dat --ixyz fcu.xyz --length-units A --box 10.638,10.03,30.0
 cd ..
 ```
 
@@ -41,4 +41,3 @@ deal-chemiscope --trajectory b_selection/deal_0.15_selected.xyz --colvar a_input
 The selection can be analyzed with the Jupyter notebook [`formate-subsampling.ipynb`](formate-subsampling.ipynb).
 
 The generated `*_chemiscope.json.gz` files can be directly visualized online at https://chemiscope.org/
-

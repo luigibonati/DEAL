@@ -153,10 +153,10 @@ deal:
   #max_iterations: 10     # max iterations for incremental mode
   #threshold_factor: 0.75 # threshold_i = threshold_factor**(i+1)
   
-  update_threshold: none # if not set it is chosen as 0.8 * threshold 
+  update_threshold: null # if not set it is chosen as 0.8 * threshold
   max_atoms_added: 0.2    # limit the number of selected environments added per configuration (can be int (number of atoms) float (0,1) (fraction of total atoms), or -1 (no limit)
-  mask: true              # false = all atoms; true = deal_mask; string = custom per-atom mask array
-  initial_atoms: none     # specify which atoms to use for GP initialization (list, fraction or number. Default: none, 1 atom per species)
+  mask: null              # auto: preprocessing mask if configured; otherwise all atoms
+  initial_atoms: null     # specify which atoms to use for GP initialization (list, fraction or number. Default: null, 1 atom per species)
   output_prefix: deal     # prefix for output files
   force_only: true
   train_hyps: false       # whether to re-train hyperparameters at each iteration (slower) 
@@ -351,7 +351,9 @@ They both contain:
 - per-atom array `atomic_uncertainty` (saved in `atoms.arrays`)
 - frame scalar `max_atomic_uncertainty` (saved in `atoms.info`)
 
-If `deal.mask` is enabled, DEAL reads a per-atom mask array from the trajectory.
+By default, `mask: null` uses the mask produced by the `preprocessing` section;
+without preprocessing, every atom is eligible. If `deal.mask` is enabled
+explicitly, DEAL reads a per-atom mask array from the trajectory.
 `mask: true` uses the default `deal_mask` array created by `deal-mask`; a string
 value uses that custom array name. Atoms with zero/false mask values are excluded
 from GP uncertainty prediction and written with `atomic_uncertainty = -1.0`.
@@ -414,7 +416,7 @@ Local environments are characterized via the Atomic Cluster Expansion formalism 
   update_threshold: 0.08  # if not set it is chosen as 0.8 * threshold      
   max_atoms_added: -1 # no limit on the number of selected environment of a given configuration to the GP.
   initial_atoms: 0.15 # use up to 15% of the atoms (of each species) for GP initialization
-  mask: true # use deal_mask prepared by deal-mask; set false to use all atoms
+  mask: null # preprocessing mask if configured; otherwise all atoms
 ```      
 
 The`threshold` parameter in the DEAL configuration controls when a local environment is flagged by the SGP’s predictive variance (normalized by the noise hyperparameter). If any environment exceeds the threshold, the GP is updated and that environment (plus any others above `update_threshold`, up to `max_atoms_added`) is added. 
