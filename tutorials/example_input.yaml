@@ -29,7 +29,7 @@ deal:
   initial_atoms: null     # specify which atoms to use for GP initialization (list, fraction or number. Default: null, 1 atom per species)
   output_prefix: deal     # prefix for output files; list-valued thresholds append a suffix
   force_only: true
-  train_hyps: false       # whether to re-train hyperparameters at each iteration (slower) 
+  train_hyps: false       # whether to retrain hyperparameters at each iteration (slower)
   verbose: false          # allowed values: true/false/"debug"
   save_gp: false
   save_full_trajectory: false 

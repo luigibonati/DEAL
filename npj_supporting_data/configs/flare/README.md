@@ -1,6 +1,6 @@
 ## FLARE configuration files
 
-This folder contains the config files containing the default parameters for generating the FLARE inputs, with different options per each section:
+This folder contains config files with the default parameters for generating FLARE inputs, with different options for each section:
 
 **SUPERCELL**
 - supercell.yaml
@@ -17,4 +17,3 @@ This folder contains the config files containing the default parameters for gene
 - otf-pylammps.yaml
 - otf-ase.yaml
 - otf-deal.yaml
-

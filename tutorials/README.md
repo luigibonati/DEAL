@@ -6,7 +6,7 @@
 - Data: Nitrogen dissociation on FeCo(110) surface, collected via OPES enhanced sampling simulations, taken from Perego and Bonati, *npj Computational Materials* 10, 291 (2024), doi: [10.1038/s41524-024-01481-6](https://doi.org/10.1038/s41524-024-01481-6)
 
 - Summary: 
-    1. pre-select high uncertainty configurations based on ensemble-based standard deviation
+    1. preselect high-uncertainty configurations based on ensemble standard deviation
     2. filter them using the GP predictive variance to identify structurally different configurations
     3. analyze distribution of selected CVs
 
@@ -26,7 +26,7 @@ ___
 
 ### [3. Preselection](3_preselection/README.md)
 
-- Illustrate how to preprocess trajectory based on uncertainty (query-by-committe), using MACE or DeepMD.
+- Illustrates how to preprocess a trajectory based on uncertainty (query-by-committee), using MACE or DeepMD.
 - Notebooks: 
   - [MACE](3_preselection/mace/mace-preselection.ipynb)
   - [DeepMD](3_preselection/deepmd/deepmd-preselection.ipynb)

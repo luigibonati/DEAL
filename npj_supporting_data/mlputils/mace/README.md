@@ -9,4 +9,4 @@ Training is divided in two steps, similar to the swa recipe from MACE.
 
 # Postprocessing
 
-'mace_uncertainty.py' takes a lammps/xyz trajectory and evaluate the uncertainty on forces using an ensemble of MACE models
+`mace_uncertainty.py` takes a LAMMPS/XYZ trajectory and evaluates the uncertainty on forces using an ensemble of MACE models.

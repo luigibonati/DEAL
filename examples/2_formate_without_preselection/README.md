@@ -12,9 +12,6 @@ curl --fail --location \
   --output traj.xyz
 ```
 
-If you previously ran the old command, run this corrected command again to
-replace the invalid `traj.xyz` file.
-
 Run with the minimal YAML configuration:
 
 ```bash

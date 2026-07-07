@@ -7,11 +7,11 @@
 > **npj Computational Materials 10, 291 (2024)**
 > doi: [10.1038/s41524-024-01481-6](https://doi.org/10.1038/s41524-024-01481-6)
 
-DEAL selects non-redundant structures from atomistic trajectories via Sparse Gaussian Processes (SGP), to be used to train machine-learning interatomic potentials.
+DEAL selects non-redundant structures from atomistic trajectories via sparse Gaussian processes (SGP), to be used to train machine-learning interatomic potentials.
 
 It consists of two steps:
-1. preselection using the MLP uncertainty (e.g. max uncertainty obtained with query-by-committee)
-2. select a dataset of non-redundant configurations using the local predictive variance of a Gaussian Process
+1. preselect configurations using MLP uncertainty (e.g. maximum uncertainty obtained with query-by-committee)
+2. select a dataset of non-redundant configurations using the local predictive variance of a Gaussian process
 
 In addition, step 2 can also be used to subsample a trajectory without uncertainty preselection (see the [tutorials](tutorials/README.md)).
 
@@ -115,7 +115,7 @@ Python 3.10, 3.12, and 3.14.
 
 ##  Usage
 
-DEAL can be run either with a command-line tool (`deal`) or using the python class (`DEAL`).
+DEAL can be run either with the command-line tool (`deal`) or with the Python class (`DEAL`).
 
 ---
 
@@ -154,7 +154,7 @@ data:
   #format: "extxyz"        # file format (e.g. extxyz, xyz, ...)
   #index: ":"              # frame selection [see ASE notation]
   #shuffle: false          # whether to shuffle the frames before processing 
-  #seed: 24
+  #seed: 24              # random seed used when shuffle is true
 
 # Optional: derive the candidate mask in memory from an existing per-atom
 # uncertainty array. This avoids writing an intermediate masked trajectory.
@@ -177,12 +177,12 @@ deal:
   #threshold_factor: 0.7  # threshold_i = threshold_factor**(i+1)
   
   update_threshold: null # if not set it is chosen as 0.8 * threshold
-  max_atoms_added: 0.2    # limit the number of selected environments added per configuration (can be int (number of atoms) float (0,1) (fraction of total atoms), or -1 (no limit)
+  max_atoms_added: 0.2    # limit selected environments added per configuration: integer count, fraction in (0,1), or -1 for no limit
   mask: null              # auto: preprocessing mask if configured; otherwise all atoms
   initial_atoms: null     # specify which atoms to use for GP initialization (list, fraction or number. Default: null, 1 atom per species)
   output_prefix: deal     # prefix for output files
   force_only: true
-  train_hyps: false       # whether to re-train hyperparameters at each iteration (slower) 
+  train_hyps: false       # whether to retrain hyperparameters at each iteration (slower)
   verbose: false          # allowed values: true/false/"debug"
   save_gp: false
   save_full_trajectory: false  # if true, writes <prefix>_trajectory_uncertainty.xyz with per-atom array "atomic_uncertainty"
@@ -250,9 +250,9 @@ deal:
   mask: true
 ```
 
-When `mask_threshold` is omitted, DEAL follows the automatic rule from
-`Preprocessing/evaulate_traj.ipynb`: it computes the mean of the maximum
-per-atom uncertainty in each frame, selects frames whose maximum lies between
+When `mask_threshold` is omitted, DEAL follows the automatic preprocessing
+rule: it computes the mean of the maximum per-atom uncertainty in each frame,
+selects frames whose maximum lies between
 `1.1` and `4.0` times that mean, and selects atoms above `0.3` times their
 frame's maximum. These constants can be changed with `lower_factor`,
 `upper_factor`, and `mask_fraction`.
@@ -325,7 +325,7 @@ deal:
     - 0.20
 ```
 
-Equivalent behaviour in Python:
+Equivalent behavior in Python:
 
 ```python
 for thr in [0.10, 0.15, 0.20]:
@@ -357,7 +357,7 @@ Note: `threshold` and `max_selected` are mutually exclusive in the CLI.
 
 ### Input files
 
-As explained in the [introduction](DEAL.md), DEAL builds a model for energy and forces using a sparse Gaussian process, although this is used only as a proxy for uncertainty. For this reason, DEAL expects to receive a trajectory as input, for example stored in an .extxyz file, containing both energies and forces. However, since the predictive uncertainty does not depend on the labels, these do not need to be recalculated at the DFT level; in fact, they could be obtained by evaluating the trajectory with an ML potential. 
+As explained in the [introduction](DEAL.md), DEAL builds a model for energy and forces using a sparse Gaussian process, although this is used only as a proxy for uncertainty. For this reason, DEAL expects to receive a trajectory as input, for example stored in an .extxyz file, containing both energies and forces. However, since the predictive uncertainty does not depend on the labels, these do not need to be recalculated at the DFT level; in fact, they could be obtained by evaluating the trajectory with an ML potential.
 
 ### Output files
 
@@ -387,8 +387,8 @@ Frames with no eligible atoms are skipped. If `mask: false`, every atom is
 eligible.
 
 With the B2 descriptor, masked prediction and local GP updates construct native
-neighbour lists and descriptors only for eligible central atoms. All atoms remain
-available as neighbours, so masked results are identical to filtering the full
+neighbor lists and descriptors only for eligible central atoms. All atoms remain
+available as neighbors, so masked results are identical to filtering the full
 calculation while the descriptor cost scales with the number of candidates.
 
 ### Create a chemiscope file
@@ -420,7 +420,7 @@ See also the Chemiscope [documentation](https://chemiscope.org/docs/).
 
 ## 🎛️ Choice of the parameters
 
-Below a quick guide, see the [introduction](DEAL.md) to DEAL for a more in-depth explanation.
+Below is a quick guide; see the [introduction](DEAL.md) for a more in-depth explanation.
 
 **Descriptors**
 
@@ -440,19 +440,19 @@ Local environments are characterized via the Atomic Cluster Expansion formalism 
 ```yaml
   threshold: 0.1
   update_threshold: 0.08  # if not set it is chosen as 0.8 * threshold      
-  max_atoms_added: -1 # no limit on the number of selected environment of a given configuration to the GP.
+  max_atoms_added: -1 # no limit on the number of selected environments added from a given configuration to the GP.
   initial_atoms: 0.15 # use up to 15% of the atoms (of each species) for GP initialization
   mask: null # preprocessing mask if configured; otherwise all atoms
 ```      
 
-The`threshold` parameter in the DEAL configuration controls when a local environment is flagged by the SGP’s predictive variance (normalized by the noise hyperparameter). If any environment exceeds the threshold, the GP is updated and that environment (plus any others above `update_threshold`, up to `max_atoms_added`) is added. 
+The `threshold` parameter in the DEAL configuration controls when a local environment is flagged by the SGP’s predictive variance (normalized by the noise hyperparameter). If any environment exceeds the threshold, the GP is updated and that environment (plus any others above `update_threshold`, up to `max_atoms_added`) is added.
 
 Some tips:
 
-- The uncertainty values are unitless, and range between 0 and 1. Lower threshold means more selected structures; higher threshold, fewer selections. 
-- A good starting point is around 0.1. As a rule of thumb, homogeneous, condensed and/or crystalline systems tend to have fewer different local environments and require smaller thresholds (<<0.1), whereas heterogeneous systems may require larger ones (>0.1). This is also connected with the number of species (more species -> higher treshold required).
+- The uncertainty values are unitless and range between 0 and 1. Lower threshold means more selected structures; higher threshold, fewer selections.
+- A good starting point is around 0.1. As a rule of thumb, homogeneous, condensed and/or crystalline systems tend to have fewer different local environments and require smaller thresholds (<<0.1), whereas heterogeneous systems may require larger ones (>0.1). This is also connected with the number of species (more species -> higher threshold required).
 - Try a few values and compare how many structures are selected; distributions often are very similar across thresholds, what changes is the number of structures. One can decide based on the computational budget (for DFT calculations).
-- A practical strategy is to perform **incremental selection**: start with a high threshold, then decrease it progressively until a target number of structures is reached (see [Tutorial 4](tutorials/4_incremental_selection/README.md)).
+- The recommended strategy is **incremental selection**: start with a high threshold, then decrease it progressively until a target number of structures is reached. This is easily achieved with the CLI by setting `max_selected` (or `--max-selected`; see the [minimal examples](examples/README.md) and [Tutorial 4](tutorials/4_incremental_selection/README.md)).
 - Use chemiscope/OVITO to visualize the selected structures and identify which environments triggered selection. 
 
-Note: the training time scales unfavorably with the number of samples. For a large dataset, it is advised to divide it in chuncks and run DEAL separately on each of them, and then performing a second DEAL selection on the output structures. 
+Note: the training time scales unfavorably with the number of samples. For a large dataset, it is advised to divide it into chunks, run DEAL separately on each chunk, and then perform a second DEAL selection on the output structures.

@@ -1,6 +1,6 @@
 ## Incremental selection 
 
-In addition to the standard mode which requires to specify a threshold, one can also run in an incremental mode, that is, running DEAL in multiple iterations with progressively
+In addition to the standard mode, which requires specifying a threshold, DEAL can also run in incremental mode, using multiple iterations with progressively
 lower thresholds, so you can stop when a target number of selected structures is reached instead of picking a single threshold upfront.
 
 <img src="incremental_DEAL_selection.png" alt="drawing" width="450"/>
@@ -59,4 +59,4 @@ deal -c input.yaml
 
 ### Deprecated Python script
 
-This functionality was first implemented as example in `incremental_DEAL.py`. This is kept as a legacy example showing how to implement incremental selection manually with `configure_run(...)` and analyzing the result in more detail.
+This functionality was first implemented as an example in `incremental_DEAL.py`. This is kept as a legacy example showing how to implement incremental selection manually with `configure_run(...)` and analyze the result in more detail.
