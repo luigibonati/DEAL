@@ -8,3 +8,5 @@ selection with a target of 140 structures.
 
 Each example provides a minimal `input.yaml` and the equivalent command-line
 invocation.
+
+See also the examples from the previous code release (`old`). 
