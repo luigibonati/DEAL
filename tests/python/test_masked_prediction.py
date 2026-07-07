@@ -1,0 +1,92 @@
+import numpy as np
+from ase.io import read
+
+from deal import SGPConfig
+from deal.model import DealActiveLearningModel
+from deal.sgp._C_sgp import Structure
+
+
+def main():
+    atoms = read("../data/traj.xyz", index=0)
+    species = sorted(set(int(z) for z in atoms.numbers))
+    train_atoms = [
+        int(np.flatnonzero(atoms.numbers == atomic_number)[0])
+        for atomic_number in species
+    ]
+    candidate_atoms = train_atoms[:2]
+
+    model = DealActiveLearningModel(SGPConfig(cutoff=5.0, species=species))
+    model.update(
+        atoms,
+        train_atoms=train_atoms,
+        dft_forces=atoms.get_forces(),
+        dft_energy=atoms.get_potential_energy(),
+    )
+
+    # The DEAL fast path skips mean energy/force/stress prediction. Its
+    # uncertainty must remain identical to the full calculator path.
+    model.calculator.calculate(atoms=atoms, uncertainty_only=False)
+    reference_stds = model.calculator.results["stds"].copy()
+    model.calculator.calculate(atoms=atoms, uncertainty_only=True)
+    np.testing.assert_allclose(
+        model.calculator.results["stds"], reference_stds, rtol=1e-10, atol=1e-12
+    )
+    assert "energy" not in model.calculator.results
+    assert "forces" not in model.calculator.results
+    assert "stress" not in model.calculator.results
+
+    full_uncertainty = model.predict_uncertainty(atoms)
+    masked_uncertainty = model.predict_uncertainty(
+        atoms, candidate_atoms=candidate_atoms
+    )
+
+    coded_species = [model.gp.species_map[int(z)] for z in atoms.numbers]
+    centered_structure = Structure(
+        atoms.cell,
+        coded_species,
+        atoms.positions,
+        model.gp.cutoff,
+        model.gp.descriptor_calculators,
+        candidate_atoms,
+    )
+    centered_descriptor = centered_structure.descriptors[0]
+    assert centered_structure.center_indices == sorted(candidate_atoms)
+    assert sum(centered_descriptor.n_clusters_by_type) == len(candidate_atoms)
+    descriptor_atom_indices = sorted(
+        int(index)
+        for indices in centered_descriptor.atom_indices
+        for index in indices
+    )
+    assert descriptor_atom_indices == sorted(candidate_atoms)
+
+    np.testing.assert_allclose(
+        masked_uncertainty[candidate_atoms],
+        full_uncertainty[candidate_atoms],
+        rtol=1e-8,
+        atol=1e-12,
+    )
+
+    raw_stds = model.calculator.results["stds"][:, 0]
+    non_candidates = np.setdiff1d(np.arange(len(atoms)), candidate_atoms)
+    assert np.all(raw_stds[non_candidates] < 0.0)
+    assert np.all(raw_stds[candidate_atoms] >= 0.0)
+
+    fast_model = DealActiveLearningModel(SGPConfig(cutoff=5.0, species=species))
+    fast_model.update(
+        atoms,
+        train_atoms=train_atoms,
+        dft_forces=atoms.get_forces(),
+        dft_energy=atoms.get_potential_energy(),
+        local_uncertainty_only=True,
+    )
+    fast_uncertainty = fast_model.predict_uncertainty(atoms)
+    assert fast_model.training_size == 1
+    assert fast_model.gp.sparse_gp.n_labels == 0
+    assert fast_model.gp.sparse_gp.n_sparse == model.gp.sparse_gp.n_sparse
+    np.testing.assert_allclose(
+        fast_uncertainty, full_uncertainty, rtol=1e-12, atol=1e-12
+    )
+
+
+if __name__ == "__main__":
+    main()

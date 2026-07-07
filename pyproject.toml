@@ -1,10 +1,15 @@
+[build-system]
+requires = ["scikit-build-core", "pybind11"]
+build-backend = "scikit_build_core.build"
+
 [project]
 name = "deal"
-version = "2.1.0"
+version = "3.0.0"
 description = "Data Efficient Active Learning"
 readme = "README.md"
 authors = [
-    { name = "Luigi Bonati" , email = "luigi.bonati@iit.it"},
+    { name = "Luigi Bonati", email = "luigi.bonati@iit.it" },
+    { name = "Simone Perego", email = "simone.perego@supsi.ch" },
 ]
 license = { text = "MIT" }
 classifiers = [
@@ -15,12 +20,16 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Natural Language :: English",
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
     "ase",
     "pandas",
     "chemiscope",
     "ipykernel",
+    "matplotlib",
+    "numpy",
+    "pyyaml",
+    "scipy",
 ]
 
 [project.urls]
@@ -29,7 +38,14 @@ dependencies = [
 [project.scripts]
 deal = "deal.cli:main"
 deal-chemiscope = "deal.chemiscope_cli:main"
+deal-mask = "deal.mask_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["deal"]
+include = ["deal*"]
+
+[tool.scikit-build]
+wheel.packages = ["deal"]
+cmake.args = [
+    "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
+]

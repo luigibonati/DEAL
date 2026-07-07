@@ -1,0 +1,10 @@
+data:
+  files: traj.xyz
+
+preprocessing:
+  key: force_std_comp_max
+  lower_factor: 0.9
+
+deal:
+  max_selected: 140
+  verbose: True

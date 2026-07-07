@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
 for dir in */ ; do
     # check if it is a directory
@@ -6,7 +7,7 @@ for dir in */ ; do
         # check if run.sh exists and is executable
         if [ -f "$dir/run.sh" ]; then
             echo "==> TEST: $dir"
-            ( cd "$dir" && bash run.sh )
+            ( cd "$dir" && bash -euo pipefail run.sh )
         fi
     fi
 done

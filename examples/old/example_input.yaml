@@ -1,0 +1,54 @@
+data:
+  files: ["traj.xyz"]     # can be a single file or a list of files
+  format: "extxyz"        # file format (e.g. extxyz, xyz, ...)
+  index: ":"              # frame selection (e.g. ":", "0:100", [0,10,20]) [see ASE notation]
+  shuffle: false          # whether to shuffle the frames before processing (suggested true for MD data)
+
+# Optional in-memory preselection from a per-atom uncertainty array:
+# preprocessing:
+#   key: force_std_comp_max
+#   mask_key: deal_mask
+#   plot: true              # true, false, or a filename
+#   output: traj_preprocessed.xyz # optional reusable masked trajectory
+#   selected_frames_only: false # write only frames containing selected atoms
+#   overwrite: false        # do not replace an existing file by default
+# Omit mask_threshold to use automatic frame thresholds (1.1x and 4x mean maximum)
+# and a per-frame atom threshold of 0.3x that frame's maximum.
+
+deal:
+  threshold: 0.1          # can be a single value or a list of values
+  
+  # OR alternative:
+  # max_selected: 50       # incremental mode: mutually exclusive with `threshold`
+  # max_iterations: 10     # max iterations for incremental mode
+  # threshold_factor: 0.7  # threshold_i = threshold_factor**(i+1)
+
+  update_threshold: null  # if not set it is chosen as 0.8 * threshold
+  max_atoms_added: 0.2   # limit per configuration: integer count, fraction in (0,1), or -1 for no limit
+  mask: null              # auto: preprocessing mask if configured; otherwise all atoms
+  initial_atoms: null     # specify which atoms to use for GP initialization (list, fraction or number. Default: null, 1 atom per species)
+  output_prefix: deal     # prefix for output files; list-valued thresholds append a suffix
+  force_only: true
+  train_hyps: false       # whether to retrain hyperparameters at each iteration (slower)
+  verbose: false          # allowed values: true/false/"debug"
+  save_gp: false
+  save_full_trajectory: false 
+
+sgp:
+  gp: SGP_Wrapper
+  kernels:
+    - name: NormalizedDotProduct
+      sigma: 2 
+      power: 2
+  descriptors:
+    - name: B2
+      nmax: 8
+      lmax: 3
+      cutoff_function: cosine
+      radial_basis: chebyshev
+  cutoff: 4.5
+  # species:                    # by default they are parsed from the traj file
+    # - 1
+    # - 6
+    # - 8
+    # - 29

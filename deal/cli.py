@@ -3,8 +3,9 @@ import sys
 import yaml
 import numpy as np
 
-from .config import DataConfig, DEALConfig, FlareConfig
+from .config import DataConfig, DEALConfig, SGPConfig
 from .core import DEAL
+from .preprocessing import TrajectoryMasker, write_preprocessed_trajectory
 
 
 def parse_args():
@@ -36,16 +37,120 @@ def parse_args():
             "Mutually exclusive with --threshold."
         ),
     )
+    parser.add_argument(
+        "--mask",
+        dest="mask",
+        help=(
+            "Candidate atom mask: false uses all atoms, true uses deal_mask, "
+            "or pass a per-atom array name."
+        ),
+    )
+    parser.add_argument(
+        "--preprocess-key",
+        help="Per-atom array from which to derive the candidate mask in memory.",
+    )
+    parser.add_argument(
+        "--preprocess-mask-threshold",
+        type=float,
+        help="Fixed atom-mask threshold used by preprocessing.",
+    )
+    parser.add_argument(
+        "--preprocess-mode",
+        choices=["above", "below", "between", "outside"],
+        help="Comparison used by in-memory mask preprocessing.",
+    )
+    parser.add_argument(
+        "--preprocess-mask-upper-threshold",
+        type=float,
+        help="Upper bound required by between/outside preprocessing modes.",
+    )
+    parser.add_argument(
+        "--preprocess-plot",
+        help="Write the preprocessing plot: true, false, or an output filename.",
+    )
 
     return parser.parse_args()
 
 
-def _run_incremental_cli(
-    data_cfg: DataConfig, deal_dict: dict, flare_cfg: FlareConfig
-) -> None:
+def _parse_mask_arg(value: str):
+    lowered = value.lower()
+    if lowered in {"none", "null"}:
+        return None
+    if lowered in {"true", "yes", "1"}:
+        return True
+    if lowered in {"false", "no", "0"}:
+        return False
+    return value
+
+
+def _parse_bool_or_filename(value: str):
+    lowered = value.lower()
+    if lowered in {"true", "yes", "1"}:
+        return True
+    if lowered in {"false", "no", "0"}:
+        return False
+    return value
+
+
+def _resolve_default_mask(config: dict) -> None:
+    """Use a configured preprocessing mask when DEAL's mask is automatic."""
+    preprocessing = config["preprocessing"]
+    if preprocessing and config["deal"].get("mask") is None:
+        config["deal"]["mask"] = preprocessing.get("mask_key", "deal_mask")
+
+
+def _apply_preprocessing(data_cfg: DataConfig, config: dict) -> None:
+    """Derive a candidate mask directly on the loaded trajectory."""
+    if not config:
+        return
+
+    missing = [name for name in ("key",) if name not in config]
+    if missing:
+        names = ", ".join(repr(name) for name in missing)
+        raise ValueError(
+            f"Preprocessing requires {names}."
+        )
+
+    config = dict(config)
+    output = config.pop("output", None)
+    overwrite = config.pop("overwrite", False)
+    output_format = config.pop("output_format", None)
+    selected_frames_only = config.pop("selected_frames_only", False)
+    masker = TrajectoryMasker(**config)
+    summary = masker.apply_to_trajectory(data_cfg.images or [])
+    print(
+        "[DEAL preprocessing] "
+        f"frames={summary.n_frames} "
+        f"atoms={summary.n_atoms} "
+        f"selected_atoms={summary.n_selected_atoms} "
+        f"frames_with_selection={summary.n_frames_with_selection} "
+        f"selected_fraction={summary.selected_fraction:.6f}"
+    )
+    if summary.lower_threshold is not None:
+        print(
+            "[DEAL preprocessing] "
+            f"lower_threshold={summary.lower_threshold:.6g} "
+            f"upper_threshold={summary.upper_threshold:.6g}"
+        )
+    if summary.plot_file is not None:
+        print(f"[DEAL preprocessing] plot={summary.plot_file}")
+    if output is not None:
+        written = write_preprocessed_trajectory(
+            data_cfg.images or [],
+            output,
+            file_format=output_format,
+            overwrite=overwrite,
+            selected_frames_only=selected_frames_only,
+            mask_key=masker.mask_key,
+        )
+        status = "saved" if written else "kept existing"
+        print(f"[DEAL preprocessing] trajectory={output} ({status})")
+
+
+def _run_incremental_cli(data_cfg: DataConfig, deal_dict: dict, sgp_cfg: SGPConfig) -> None:
     max_selected = deal_dict.get("max_selected")
     max_iterations = deal_dict.get("max_iterations", 10)
-    threshold_factor = deal_dict.get("threshold_factor", 0.75)
+    threshold_factor = deal_dict.get("threshold_factor", 0.7)
     rng = np.random.default_rng(data_cfg.seed) # use same seed for shuffling at each iteration
 
     print(f"[DEAL] Running in incremental mode with max_selected = {max_selected}.")
@@ -80,7 +185,7 @@ def _run_incremental_cli(
         data_iter_cfg = DataConfig(images=remaining_images, seed=data_cfg.seed)
 
         if iteration == 0:
-            deal = DEAL(data_iter_cfg, deal_cfg, flare_cfg)
+            deal = DEAL(data_iter_cfg, deal_cfg, sgp_cfg)
         else:
             deal.configure_run(data_cfg=data_iter_cfg, deal_cfg=deal_cfg)
 
@@ -130,10 +235,9 @@ def main() -> None:
             cfg_dict = yaml.safe_load(f) or {}
 
     # Initialize dicts if not available
-    for key in ["data", "deal", "flare"]:
+    for key in ["data", "preprocessing", "deal", "sgp"]:
         if key not in cfg_dict:
             cfg_dict[key] = {}
-
     # Overwrite / fill from CLI options
     if args.filename is not None:
         cfg_dict["data"]["files"] = [args.filename]
@@ -141,6 +245,28 @@ def main() -> None:
         cfg_dict["deal"]["threshold"] = args.threshold
     if args.max_selected is not None:
         cfg_dict["deal"]["max_selected"] = args.max_selected
+    if args.mask is not None:
+        cfg_dict["deal"]["mask"] = _parse_mask_arg(args.mask)
+    if args.preprocess_key is not None:
+        cfg_dict["preprocessing"]["key"] = args.preprocess_key
+    if args.preprocess_mask_threshold is not None:
+        cfg_dict["preprocessing"]["mask_threshold"] = (
+            args.preprocess_mask_threshold
+        )
+    if args.preprocess_mode is not None:
+        cfg_dict["preprocessing"]["mode"] = args.preprocess_mode
+    if args.preprocess_mask_upper_threshold is not None:
+        cfg_dict["preprocessing"]["mask_upper_threshold"] = (
+            args.preprocess_mask_upper_threshold
+        )
+    if args.preprocess_plot is not None:
+        cfg_dict["preprocessing"]["plot"] = _parse_bool_or_filename(
+            args.preprocess_plot
+        )
+
+    # A preprocessing mask should be consumed automatically unless the user
+    # explicitly selected or disabled a DEAL mask. ``null`` means automatic.
+    _resolve_default_mask(cfg_dict)
 
     # Check file
     try:
@@ -151,9 +277,10 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # Build data/flare configs
+    # Build data/SGP configs
     data_cfg = DataConfig(**cfg_dict["data"])
-    flare_cfg = FlareConfig(**cfg_dict["flare"])
+    _apply_preprocessing(data_cfg, cfg_dict["preprocessing"])
+    sgp_cfg = SGPConfig(**cfg_dict["sgp"])
 
     deal_dict = dict(cfg_dict["deal"])
     has_threshold = deal_dict.get("threshold", None) is not None
@@ -167,7 +294,7 @@ def main() -> None:
         sys.exit(1)
 
     if has_max_selected:
-        _run_incremental_cli(data_cfg, deal_dict, flare_cfg)
+        _run_incremental_cli(data_cfg, deal_dict, sgp_cfg)
         return
 
     # Standard mode: handle one threshold or a list of independent thresholds
@@ -182,7 +309,7 @@ def main() -> None:
 
             print(f"[DEAL] Running with threshold: {th}")
             deal_cfg = DEALConfig(**run_deal_dict)
-            DEAL(data_cfg, deal_cfg, flare_cfg).run()
+            DEAL(data_cfg, deal_cfg, sgp_cfg).run()
     else:
         deal_cfg = DEALConfig(**deal_dict)
-        DEAL(data_cfg, deal_cfg, flare_cfg).run()
+        DEAL(data_cfg, deal_cfg, sgp_cfg).run()

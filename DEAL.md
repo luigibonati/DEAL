@@ -18,25 +18,25 @@ In many workflows, step 2 is performed with *query-by-committee*, where an ensem
 
 > DEAL uses the uncertainty prediction of a Gaussian Process model to select the configurations based on the structural similarity via local-environment descriptors.
 
-We first introduce the ingredients used by DEAL, particularly the sparse Gaussian process (SGP) based on ACE local descriptors and the uncertainty measure, as implemented in the FLARE [2] package.
+We first introduce the ingredients used by DEAL, particularly the sparse Gaussian process (SGP) based on ACE local descriptors and the uncertainty measure. The current code ships a DEAL-owned native SGP backend containing the minimal functionality needed by DEAL.
 
 ### 2.1 Local descriptors (ACE)
 
 In the Atomic Cluster Expansion formalism, each atom $i$ is represented by a descriptor vector $\mathbf{d}_i$ built from its local environment $\rho_i$, that is, the list of neighbors within a cutoff radius:
 <p align="center"> <img src="imgs/ACE.png" width="300"/> </p>
 
-At high level, these descriptors encode:
-- radial information (how neighbor density varies with distance,
+At a high level, these descriptors encode:
+- radial information (how neighbor density varies with distance),
 - angular information (how neighbors are arranged in direction),
 - chemical identity (which species contribute to the local density).
 
 Relevant config parameters are:
-- `flare_calc.cutoff` (global cutoff radius $r_c$, or, optionally, pair-dependent cutoffs specified via `cutoff_matrix`)
-- `flare_calc.descriptors.nmax` (radial resolution)
-- `flare_calc.descriptors.lmax` (angular resolution)
+- `sgp.cutoff` (global cutoff radius $r_c$, or, optionally, pair-dependent cutoffs specified via `cutoff_matrix`)
+- `sgp.descriptors.nmax` (radial resolution)
+- `sgp.descriptors.lmax` (angular resolution)
 
 Notes:
-- **Multiple species**. For multi-component systems, neighbor density of different species are concatenated, so environments with similar geometry but different chemistry remain distinguishable.
+- **Multiple species**. For multi-component systems, neighbor densities of different species are concatenated, so environments with similar geometry but different chemistry remain distinguishable.
 - **Radial resolution**. For fixed `nmax`, increasing `cutoff` expands the spatial domain represented by the same number of radial basis functions, decreasing radial detail per unit distance. A useful rule-of-thumb is: $\Delta r \sim \frac{r_c}{n_{\max}}$, where $r_c$ is the cutoff. If `cutoff` is increased, `nmax` should be increased as well to avoid losing resolution.
 
 ### 2.2 Energy model and kernel representation
@@ -64,17 +64,17 @@ $$
 
 - $\alpha_m$ are learned GP weights during training.
 
-So the model compares each current environment against reference environments in the training set and combines these similarities. To keep memory and compute manageable, FLARE uses a **sparse GP** updates: only a subset of environments is retained as reference environments.
+So the model compares each current environment against reference environments in the training set and combines these similarities. To keep memory and compute manageable, DEAL uses **sparse GP** updates: only a subset of environments is retained as reference environments.
 
 ### 2.3 GP predictive variance 
 
-The key feature of a GP is that it provides a predictions of both the value and its associated uncertainty. For a query local environment $\rho$, the GP predictive variance associated with the the atomic energy contribution has the form:
+The key feature of a GP is that it provides predictions of both the value and its associated uncertainty. For a query local environment $\rho$, the GP predictive variance associated with the atomic energy contribution has the form:
 
 $$
 \mathrm{Var}[\varepsilon(\rho)] =\frac{k(\rho,\rho)-\mathbf{k}^\top\mathbf{K}^{-1}\mathbf{k}}{ \sigma^2}
 $$
 
-which depends on the matrix of kernel similarities between the enviroment and the reference set $\mathbf{k}$ (each element is $k(\rho,\rho_m)$ ), as well as the one between the reference structures themselves ($\mathbf{K}$). In other words, the predicted uncertainty is based only on structural novelty measured in local-environment space, not on the (DFT) energies. Furthermore, in FLARE the variance is normalized by the lengthscale hyperparameter $\sigma$, to yield a number betweeen 0 and 1.
+which depends on the matrix of kernel similarities between the environment and the reference set $\mathbf{k}$ (each element is $k(\rho,\rho_m)$ ), as well as the one between the reference structures themselves ($\mathbf{K}$). In other words, the predicted uncertainty is based only on structural novelty measured in local-environment space, not on the (DFT) energies. DEAL reports the variance normalized by the signal hyperparameter $\sigma$, yielding a unitless value.
 
 ## 3) How DEAL selection works
 
@@ -90,20 +90,20 @@ Relevant `deal` config parameters:
 - `deal.threshold`: uncertainty value which triggers selection. 
 - `deal.update_threshold`: threshold for adding additional environments from the same selected structure 
 - `deal.max_atoms_added`: cap on how many local environments are added per selected structure.
-- `deal.initial_atoms`: which atoms add to the sparse set in the first configuration (index or percentage).
+- `deal.initial_atoms`: which atoms are added to the sparse set in the first configuration (index or percentage).
 
 ## 4) Practical guidance for threshold choice and workflow
 
-- The uncertainty values are unitless, and range between 0 and 1. Lower threshold means more selected structures; higher threshold, fewer selections. 
-- A good starting point is around 0.1. As a rule of thumb, homogeneous, condensed and/or crystalline systems tend to have fewer different local environments and require smaller thresholds (<<0.1), whereas heterogeneous systems may require larger ones (>0.1). This is also connected with the number of species (more species -> higher treshold required).
+- The uncertainty values are unitless and range between 0 and 1. Lower threshold means more selected structures; higher threshold, fewer selections.
+- A good starting point is around 0.1. As a rule of thumb, homogeneous, condensed and/or crystalline systems tend to have fewer different local environments and require smaller thresholds (<<0.1), whereas heterogeneous systems may require larger ones (>0.1). This is also connected with the number of species (more species -> higher threshold required).
 - Try a few values and compare how many structures are selected; distributions often are very similar across thresholds, what changes is the number of structures. One can decide based on the computational budget (for DFT calculations).
-- A practical strategy is to perform **incremental selection**: start with a high threshold, then decrease it progressively until a target number of structures is reached (see example #4).
-- Use chemiscope to inspect selected structures and identify which environments triggered selection (see example #2)
+- The recommended strategy is **incremental selection**: start with a high threshold, then decrease it progressively until a target number of structures is reached. This is easily achieved with the CLI by setting `max_selected` (or `--max-selected`; see the [minimal examples](examples/README.md) and [Tutorial 4](tutorials/4_incremental_selection/README.md)).
+- Use chemiscope to inspect selected structures and identify which environments triggered selection (see [Tutorial 2](tutorials/2_subsampling_formate/README.md)).
 
-Note: the training time scales unfavorably with the number of samples. For a large dataset, it is advised to divide it in chuncks and run DEAL separately on each of them, and then performing a second DEAL selection on the output structures. 
+Note: the training time scales unfavorably with the number of samples. For a large dataset, it is advised to divide it into chunks, run DEAL separately on each chunk, and then perform a second DEAL selection on the output structures.
 
 ## References
 
 [1] DEAL: https://www.nature.com/articles/s41524-024-01481-6
 
-[2] FLARE SGP: https://www.nature.com/articles/s41467-022-32294-0
+[2] FLARE SGP background: https://www.nature.com/articles/s41467-022-32294-0

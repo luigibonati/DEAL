@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import asdict
 from typing import List, Optional, Sequence
 
 import numpy as np
 import sys
 from pprint import pformat
-import json
 from copy import deepcopy
 import time
 
@@ -14,9 +12,9 @@ from ase import Atoms
 from ase.io import write
 from ase.calculators.singlepoint import SinglePointCalculator
 
-from flare.learners.utils import is_std_in_bound
-from flare.atoms import FLARE_Atoms
-from .config import DataConfig, DEALConfig, FlareConfig
+from .config import DataConfig, DEALConfig, SGPConfig
+from .model import DealActiveLearningModel
+from .runtime import format_runtime_info
 
 
 class DEAL:
@@ -31,21 +29,27 @@ class DEAL:
 
     Outputs:
         <output_prefix>_selected.xyz
-        <output_prefix>_flare.json
+        <output_prefix>_sgp.json
     """
 
     def __init__(
-        self, data_cfg: DataConfig, deal_cfg: DEALConfig, flare_cfg: FlareConfig
+        self, data_cfg: DataConfig, deal_cfg: DEALConfig, sgp_cfg: SGPConfig
     ):
 
         # Configure using provided config objects
-        self.configure_run(data_cfg, deal_cfg, flare_cfg)
+        self.configure_run(data_cfg, deal_cfg, sgp_cfg)
 
         if self.deal_cfg.verbose:
+            print(format_runtime_info())
+            if self._use_local_uncertainty_fast_path():
+                print(
+                    "[INFO] Optimization: local uncertainty fast path enabled "
+                    "(training labels, Kuf, posterior mean, and QR are skipped)."
+                )
             print("[INFO] Configurations:")
             print("-", pformat(self.data_cfg))
             print("-", pformat(self.deal_cfg))
-            print("-", pformat(self.flare_cfg),"\n")
+            print("-", pformat(self.sgp_cfg),"\n")
 
         # Timing accumulation
         self.timers = {
@@ -56,21 +60,22 @@ class DEAL:
             "update": 0.0,
             "io_write": 0.0,
             "other": 0.0,
+            "frames": 0,
         }
 
     def configure_run(
         self,
         data_cfg: Optional[DataConfig] = None,
         deal_cfg: Optional[DEALConfig] = None,
-        flare_cfg: Optional[FlareConfig] = None,
+        sgp_cfg: Optional[SGPConfig] = None,
     ) -> None:
         """
         Setup configuration objects when provided.
-        SGP is rebuilt only when flare_cfg is provided.
+        SGP is rebuilt only when sgp_cfg is provided.
         """
         data_changed = data_cfg is not None
         deal_changed = deal_cfg is not None
-        flare_changed = flare_cfg is not None
+        sgp_changed = sgp_cfg is not None
 
         if data_changed:
             if not isinstance(data_cfg, DataConfig):
@@ -87,26 +92,28 @@ class DEAL:
                 )
             self.deal_cfg = deal_cfg
 
-        if flare_changed:
-            if not isinstance(flare_cfg, FlareConfig):
+        if sgp_changed:
+            if not isinstance(sgp_cfg, SGPConfig):
                 raise TypeError(
-                    f"Expected FlareConfig for flare_cfg, got {type(flare_cfg)}."
+                    f"Expected SGPConfig for sgp_cfg, got {type(sgp_cfg)}."
                 )
-            self.flare_cfg = flare_cfg
+            self.sgp_cfg = sgp_cfg
 
-        if data_changed and not flare_changed and self.flare_cfg.species is not None:
+        if data_changed and not sgp_changed and self.sgp_cfg.species is not None:
             data_species = self._get_species()
-            if data_species != sorted(self.flare_cfg.species):
+            if data_species != sorted(self.sgp_cfg.species):
                 raise ValueError(
-                    "Input species changed but FLARE model was not rebuilt. "
-                    "Pass flare_cfg to configure_run to rebuild SGP."
+                    "Input species changed but the SGP model was not rebuilt. "
+                    "Pass sgp_cfg to configure_run to rebuild SGP."
                 )
 
-        if flare_changed:
-            if self.flare_cfg.species is None:
-                self.flare_cfg.species = self._get_species()
-            self.flare_calc, self.kernels = self._get_sgp_calc(asdict(self.flare_cfg))
-            self.gp = self.flare_calc.gp_model
+        if sgp_changed:
+            if self.sgp_cfg.species is None:
+                self.sgp_cfg.species = self._get_species()
+            self.model = DealActiveLearningModel(self.sgp_cfg)
+            self.sgp_calc = self.model.calculator
+            self.kernels = self.model.kernels
+            self.gp = self.model.gp
             self.selected_frames = []
             self.dft_count = 0
 
@@ -115,6 +122,13 @@ class DEAL:
     # ------------------------------------------------------------------
     # basic helpers
     # ------------------------------------------------------------------
+
+    def _use_local_uncertainty_fast_path(self) -> bool:
+        return (
+            self.sgp_cfg.variance_type == "local"
+            and not self.deal_cfg.train_hyps
+            and not self.deal_cfg.save_gp
+        )
 
     @staticmethod
     def _copy_atoms_with_results(atoms: Atoms) -> Atoms:
@@ -173,79 +187,54 @@ class DEAL:
         sys.stdout.write("\r" + msg)
         sys.stdout.flush()
 
-    def _extract_atomic_uncertainty(self, atoms, n_atoms: int) -> np.ndarray:
-        """
-        Extract per-atom uncertainty values from FLARE_Atoms after prediction.
-        Returns a (n_atoms,) array, using NaN values when unavailable.
-        """
-        candidates = [
-            getattr(atoms, "stds", None),
-            getattr(atoms, "local_uncertainties", None),
-            getattr(atoms, "uncertainties", None),
-        ]
-        if getattr(atoms, "calc", None) is not None:
-            results = getattr(atoms.calc, "results", {}) or {}
-            candidates.extend(
-                [
-                    results.get("stds"),
-                    results.get("local_uncertainties"),
-                    results.get("uncertainties"),
-                ]
-            )
+    @staticmethod
+    def _format_atom_indices(atom_indices: Sequence[int], limit: int = 20) -> str:
+        """Format atom indices without letting debug lines grow without bound."""
+        indices = [int(index) for index in atom_indices]
+        shown = ",".join(str(index) for index in indices[:limit])
+        if len(indices) > limit:
+            shown += f",...(+{len(indices) - limit})"
+        return f"[{shown}]"
 
-        raw = next((c for c in candidates if c is not None), None)
-        if raw is None:
-            return np.full(n_atoms, np.nan, dtype=float)
+    def _debug(self, step: int, **fields) -> None:
+        """Write a labelled, grep-friendly debug record for one frame event."""
+        if not self.deal_cfg.debug:
+            return
+        details = " | ".join(f"{key}={value}" for key, value in fields.items())
+        sys.stdout.write(f"\r[DEBUG] step={step + 1} | {details}\n")
 
-        stds = np.asarray(raw, dtype=float)
-        if stds.ndim == 1:
-            if stds.shape[0] == n_atoms:
-                return stds.copy()
-            if stds.shape[0] == 3 * n_atoms:
-                return np.linalg.norm(stds.reshape(n_atoms, 3), axis=1)
-            if stds.size == n_atoms:
-                return stds.reshape(n_atoms)
-        elif stds.ndim == 2 and stds.shape[0] == n_atoms:
-            if stds.shape[1] == 1:
-                return stds[:, 0].copy()
-            return np.linalg.norm(stds, axis=1)
-
-        return np.full(n_atoms, np.nan, dtype=float)
-
-    def _get_uncertainty_preselection_mask(self, ase_frame) -> Optional[np.ndarray]:
-        """Return a boolean mask from an input per-atom uncertainty array."""
-        if self.deal_cfg.uncertainty_key is None:
+    def _get_candidate_mask(self, ase_frame) -> Optional[np.ndarray]:
+        """Return a boolean candidate mask from the configured frame array."""
+        if self.deal_cfg.mask is None or self.deal_cfg.mask is False:
             return None
 
-        key = self.deal_cfg.uncertainty_key
+        key = "deal_mask" if self.deal_cfg.mask is True else self.deal_cfg.mask
         if key not in ase_frame.arrays:
             raise RuntimeError(
-                f"Frame is missing per-atom uncertainty array '{key}'. "
-                "Disable 'uncertainty_key' or provide it in the input trajectory."
+                f"Frame is missing per-atom mask array '{key}'. "
+                "Set 'mask: false' to use all atoms or prepare/provide the mask array."
             )
 
-        values = np.asarray(ase_frame.arrays[key], dtype=float)
+        values = np.asarray(ase_frame.arrays[key])
         n_atoms = len(ase_frame)
         if values.shape[0] != n_atoms:
             raise RuntimeError(
-                f"Per-atom uncertainty array '{key}' has incompatible shape "
+                f"Per-atom mask array '{key}' has incompatible shape "
                 f"{values.shape}; expected first dimension {n_atoms}."
             )
-        if values.ndim == 1:
-            per_atom = values
-        else:
-            per_atom = np.nanmax(values.reshape(n_atoms, -1), axis=1)
+        if values.ndim > 1:
+            values = np.nanmax(values.reshape(n_atoms, -1).astype(float), axis=1)
 
-        return per_atom > self.deal_cfg.uncertainty_threshold
+        return values.astype(bool)
 
-    def _apply_uncertainty_preselection(
+    def _apply_candidate_mask(
         self, atomic_uncertainty: np.ndarray, mask: Optional[np.ndarray]
     ) -> np.ndarray:
-        """Mark atoms excluded by external preselection with the configured value."""
+        """Mark atoms excluded by a candidate mask as ineligible."""
         if mask is None:
             return atomic_uncertainty
         filtered = atomic_uncertainty.copy()
-        filtered[~mask] = self.deal_cfg.uncertainty_rejected_value
+        filtered[~mask] = -1.0
         return filtered
 
     @staticmethod
@@ -256,8 +245,8 @@ class DEAL:
             return list(atom_indices)
         return [idx for idx in atom_indices if 0 <= idx < len(mask) and mask[idx]]
 
-    def _select_preselected_target_atoms(self, atoms, mask: np.ndarray):
-        """Select target atoms using only atoms that pass external preselection."""
+    def _select_masked_target_atoms(self, atoms, mask: np.ndarray):
+        """Select target atoms using only atoms that pass the candidate mask."""
         threshold = self.deal_cfg.threshold
         update_threshold = self.deal_cfg.update_threshold
         candidate_atoms = np.flatnonzero(mask)
@@ -294,6 +283,7 @@ class DEAL:
     # ------------------------------------------------------------------
     def run(self) -> None:
         for step, ase_frame in enumerate(self._frames()):
+            self.timers["frames"] += 1
             step_start = time.perf_counter()
             init_frame = False
             # 1) DFT labels from original ASE frame
@@ -302,54 +292,44 @@ class DEAL:
             dt = time.perf_counter() - t0
             self.timers["extract_dft"] += dt
 
-            preselection_mask = self._get_uncertainty_preselection_mask(ase_frame)
-            can_bootstrap_without_preselection = (
-                len(self.gp.training_data) == 0
-                and not self.deal_cfg.uncertainty_filter_initial_atoms
-            )
+            candidate_mask = self._get_candidate_mask(ase_frame)
             if (
-                preselection_mask is not None
-                and not np.any(preselection_mask)
-                and not can_bootstrap_without_preselection
+                candidate_mask is not None
+                and not np.any(candidate_mask)
             ):
                 ase_frame.arrays["atomic_uncertainty"] = np.full(
                     len(ase_frame),
-                    self.deal_cfg.uncertainty_rejected_value,
+                    -1.0,
                     dtype=float,
                 )
-                ase_frame.info["max_atomic_uncertainty"] = (
-                    self.deal_cfg.uncertainty_rejected_value
-                )
+                ase_frame.info["max_atomic_uncertainty"] = -1.0
                 if self.deal_cfg.save_full_trajectory:
                     t_io0 = time.perf_counter()
                     self._store_full_trajectory_frame(step, ase_frame)
                     self.timers["io_write"] += time.perf_counter() - t_io0
+                self._debug(
+                    step,
+                    decision="skip",
+                    reason="empty_candidate_mask",
+                    candidates=f"0/{len(ase_frame)}",
+                )
                 elapsed = time.perf_counter() - self.timers["start"]
                 step_time = time.perf_counter() - step_start
                 self._print_progress(step, elapsed, step_time)
                 continue
 
-            # 2) Convert to FLARE_Atoms for SGP calculations & uncertainties
-            atoms = FLARE_Atoms.from_ase_atoms(ase_frame)
+            # 2) Convert to SGP atoms for calculations & uncertainties
+            atoms = self.model.to_model_atoms(ase_frame)
 
             # 2a) INITIALIZATION: if GP has no training data, use first frame
             #     to bootstrap the model (no uncertainty check).
-            if len(self.gp.training_data) == 0:
+            if self.model.training_size == 0:
                 t_up0 = time.perf_counter()
                 init_frame = True
-                init_preselection_mask = (
-                    preselection_mask
-                    if self.deal_cfg.uncertainty_filter_initial_atoms
-                    else None
-                )
-                if self.deal_cfg.debug:
-                    sys.stdout.write(
-                        "\r"
-                        + f"[DEBUG] : step {step+1} : Initializing GP with first frame\n"
-                    )
+                init_candidate_mask = candidate_mask
                 if isinstance(self.deal_cfg.initial_atoms, list):
                     init_atoms = self._filter_atoms_by_mask(
-                        self.deal_cfg.initial_atoms, init_preselection_mask
+                        self.deal_cfg.initial_atoms, init_candidate_mask
                     )
                 else:
                     unique_species = sorted(set(atoms.get_atomic_numbers().tolist()))
@@ -359,7 +339,7 @@ class DEAL:
                             i for i, at in enumerate(atoms) if at.number == sp
                         ]
                         idx_species[sp] = self._filter_atoms_by_mask(
-                            idx_species[sp], init_preselection_mask
+                            idx_species[sp], init_candidate_mask
                         )
                         self.rng.shuffle(
                             idx_species[sp]
@@ -381,44 +361,64 @@ class DEAL:
                                     )
                                 )
                             ]
-                if init_preselection_mask is not None and len(init_atoms) == 0:
+                if init_candidate_mask is not None and len(init_atoms) == 0:
                     ase_frame.arrays["atomic_uncertainty"] = np.full(
                         len(ase_frame),
-                        self.deal_cfg.uncertainty_rejected_value,
+                        -1.0,
                         dtype=float,
                     )
-                    ase_frame.info["max_atomic_uncertainty"] = (
-                        self.deal_cfg.uncertainty_rejected_value
-                    )
+                    ase_frame.info["max_atomic_uncertainty"] = -1.0
                     if self.deal_cfg.save_full_trajectory:
                         t_io0 = time.perf_counter()
                         self._store_full_trajectory_frame(step, ase_frame)
                         self.timers["io_write"] += time.perf_counter() - t_io0
+                    self._debug(
+                        step,
+                        decision="skip",
+                        reason="no_bootstrap_atoms_after_mask",
+                        candidates=f"{int(np.count_nonzero(init_candidate_mask))}/{len(atoms)}",
+                    )
                     elapsed = time.perf_counter() - self.timers["start"]
                     step_time = time.perf_counter() - step_start
                     self._print_progress(step, elapsed, step_time)
                     continue
-                if self.deal_cfg.debug:
-                    sys.stdout.write(
-                        "\r"
-                        + f"[DEBUG] : step {step+1} : Initial atoms selected : {init_atoms}"
-                    )
-                self._update_gp(
+                self.model.update(
                     atoms=atoms,
                     train_atoms=init_atoms,
-                    dft_frcs=dft_forces,
+                    dft_forces=dft_forces,
                     dft_energy=dft_energy,
                     dft_stress=dft_stress,
+                    force_only=self.deal_cfg.force_only,
+                    train_hyperparameters=self.deal_cfg.train_hyps,
+                    local_uncertainty_only=self._use_local_uncertainty_fast_path(),
                 )
-                self.timers["update"] += time.perf_counter() - t_up0
+                bootstrap_time = time.perf_counter() - t_up0
+                self.timers["update"] += bootstrap_time
+                self._debug(
+                    step,
+                    event="bootstrap",
+                    candidates=(
+                        f"{int(np.count_nonzero(init_candidate_mask))}/{len(atoms)}"
+                        if init_candidate_mask is not None
+                        else f"{len(atoms)}/{len(atoms)}"
+                    ),
+                    train_atoms=len(init_atoms),
+                    train_indices=self._format_atom_indices(init_atoms),
+                    update_s=f"{bootstrap_time:.3f}",
+                )
 
             # 3) Predict with SGP and compute uncertainties
             t_pred0 = time.perf_counter()
-            atoms.calc = self.flare_calc
-            _ = atoms.get_forces()  # triggers GP eval and stores stds internally
-            atomic_uncertainty = self._extract_atomic_uncertainty(atoms, len(atoms))
-            atomic_uncertainty = self._apply_uncertainty_preselection(
-                atomic_uncertainty, preselection_mask
+            candidate_atoms = (
+                np.flatnonzero(candidate_mask).astype(int).tolist()
+                if candidate_mask is not None
+                else None
+            )
+            atomic_uncertainty = self.model.predict_uncertainty(
+                atoms, candidate_atoms=candidate_atoms
+            )
+            atomic_uncertainty = self._apply_candidate_mask(
+                atomic_uncertainty, candidate_mask
             )
             ase_frame.arrays["atomic_uncertainty"] = atomic_uncertainty
             ase_frame.info["max_atomic_uncertainty"] = (
@@ -437,42 +437,28 @@ class DEAL:
                 if isinstance(self.deal_cfg.max_atoms_added, int)
                 else int(np.ceil(self.deal_cfg.max_atoms_added * len(atoms)))
             )
-            std_in_bound_all, target_atoms_all = is_std_in_bound(
-                self.deal_cfg.threshold * -1,  # threshold = - std_tolerance_factor
-                self.gp.force_noise,
-                atoms,
-                update_style="threshold",
-                update_threshold=self.deal_cfg.update_threshold,
-            )
-            if preselection_mask is None:
-                std_in_bound = std_in_bound_all
-                target_atoms = target_atoms_all
-            else:
-                std_in_bound, preselected_target_atoms = (
-                    self._select_preselected_target_atoms(atoms, preselection_mask)
+            if candidate_mask is None:
+                std_in_bound, target_atoms = self.model.select_atoms_by_uncertainty(
+                    atoms,
+                    threshold=self.deal_cfg.threshold,
+                    update_threshold=self.deal_cfg.update_threshold,
                 )
-                if self.deal_cfg.uncertainty_filter_update_atoms:
-                    target_atoms = preselected_target_atoms
-                elif std_in_bound:
-                    target_atoms = []
-                else:
-                    target_atoms = [
-                        idx
-                        for idx in target_atoms_all
-                        if 0 <= idx < len(preselection_mask)
-                    ]
+            else:
+                std_in_bound, target_atoms = self.model.select_atoms_by_uncertainty(
+                    atoms,
+                    threshold=self.deal_cfg.threshold,
+                    update_threshold=self.deal_cfg.update_threshold,
+                    candidate_mask=candidate_mask,
+                )
             if (
                 0 < max_atom_added < len(target_atoms)
             ):  # only keep up to max_atoms_added atoms
                 target_atoms = target_atoms[-max_atom_added:]
-            self.timers["predict"] += time.perf_counter() - t_pred0
-            if self.deal_cfg.debug:
-                sys.stdout.write(
-                    "\r"
-                    + f"[DEBUG] : step {step+1} : {std_in_bound} : {target_atoms} : {self.deal_cfg.max_atoms_added if isinstance(self.deal_cfg.max_atoms_added, int) else int(np.ceil(self.deal_cfg.max_atoms_added * len(atoms)))}"
-                )
+            predict_time = time.perf_counter() - t_pred0
+            self.timers["predict"] += predict_time
 
             steps_since_last = step - self.last_dft_step
+            update_time = 0.0
 
             if (not std_in_bound) and (
                 steps_since_last >= self.deal_cfg.min_steps_with_model
@@ -485,24 +471,89 @@ class DEAL:
                     ase_frame,
                     target_atoms + init_atoms if init_frame else target_atoms,
                 )
-                if self.deal_cfg.debug:
-                    sys.stdout.write(
-                        "\r"
-                        + f"[DEBUG] : step {step+1} : Atoms selected : {target_atoms+init_atoms if init_frame else target_atoms}"
-                    )
-                self._update_gp(
+                self.model.update(
                     atoms=atoms,
                     train_atoms=list(target_atoms),
-                    dft_frcs=dft_forces,
+                    dft_forces=dft_forces,
                     dft_energy=dft_energy,
                     dft_stress=dft_stress,
+                    force_only=self.deal_cfg.force_only,
+                    train_hyperparameters=self.deal_cfg.train_hyps,
+                    local_uncertainty_only=self._use_local_uncertainty_fast_path(),
                 )
-                self.timers["update"] += time.perf_counter() - t_up0
+                update_time = time.perf_counter() - t_up0
+                self.timers["update"] += update_time
+                decision = "select"
+                reason = "uncertainty_above_threshold"
             elif (
                 std_in_bound and init_frame
             ):  # In initial frame case, store selected frame even if stds are okay
                 self.last_dft_step = step
                 self._store_selected_frame(step, ase_frame, target_atoms=init_atoms)
+                decision = "select"
+                reason = "bootstrap_frame"
+            elif not std_in_bound:
+                decision = "defer"
+                reason = "min_steps_with_model"
+            else:
+                decision = "skip"
+                reason = "uncertainty_within_threshold"
+
+            if self.deal_cfg.debug:
+                candidate_indices = (
+                    np.flatnonzero(candidate_mask)
+                    if candidate_mask is not None
+                    else np.arange(len(atoms))
+                )
+                # Selection uses the largest component of atoms.stds, whereas
+                # exported atomic_uncertainty may be a vector norm. Report the
+                # same quantity that actually drives the threshold decision.
+                selection_stds = np.asarray(
+                    [
+                        float(np.max(atoms.stds[index]))
+                        for index in candidate_indices
+                    ]
+                )
+                finite_selection_stds = selection_stds[
+                    np.isfinite(selection_stds)
+                ]
+                max_selection_std = (
+                    float(np.max(finite_selection_stds))
+                    if len(finite_selection_stds)
+                    else float("nan")
+                )
+                atoms_above_update = int(
+                    np.count_nonzero(
+                        finite_selection_stds > self.deal_cfg.update_threshold
+                    )
+                )
+                selected_atoms = (
+                    target_atoms + init_atoms if init_frame else target_atoms
+                )
+                self._debug(
+                    step,
+                    decision=decision,
+                    reason=reason,
+                    max_selection_std=f"{max_selection_std:.6g}",
+                    threshold=f"{self.deal_cfg.threshold:.6g}",
+                    update_threshold=f"{self.deal_cfg.update_threshold:.6g}",
+                    candidates=f"{len(candidate_indices)}/{len(atoms)}",
+                    above_update=atoms_above_update,
+                    target_cap=max_atom_added,
+                    selected_atoms=(
+                        len(selected_atoms) if decision == "select" else 0
+                    ),
+                    train_atoms=len(target_atoms) if decision == "select" else 0,
+                    selected_indices=self._format_atom_indices(
+                        selected_atoms if decision == "select" else []
+                    ),
+                    steps_since_update=(
+                        "bootstrap" if init_frame else steps_since_last
+                    ),
+                    min_steps=self.deal_cfg.min_steps_with_model,
+                    predict_s=f"{predict_time:.3f}",
+                    update_s=f"{update_time:.3f}",
+                )
             # ========== print progress ==========
             elapsed = time.perf_counter() - self.timers["start"]
             step_time = time.perf_counter() - step_start
@@ -520,11 +571,11 @@ class DEAL:
         if self.selected_frames and self.deal_cfg.save_gp:
             # Save final SGP model
             t_io0 = time.perf_counter()
-            self.flare_calc.write_model(f"{self.deal_cfg.output_prefix}_flare.json")
+            self.model.write(f"{self.deal_cfg.output_prefix}_sgp.json")
             self.timers["io_write"] += time.perf_counter() - t_io0
             if self.deal_cfg.verbose:
                 print(
-                    f"[OUTPUT] Saved GP model to {self.deal_cfg.output_prefix}_flare.json"
+                    f"[OUTPUT] Saved GP model to {self.deal_cfg.output_prefix}_sgp.json"
                 )
 
         if self.deal_cfg.save_full_trajectory and self.deal_cfg.verbose:
@@ -544,152 +595,23 @@ class DEAL:
             iow = self.timers["io_write"]
             oth = max(0.0, total - (extract + pred + upd + iow))
             self.timers["other"] = oth
-            print("\n[TIMING] Summary (s):")
+            frames = self.timers["frames"]
+            seconds_per_frame = total / frames if frames else 0.0
+            frames_per_second = frames / total if total > 0 else 0.0
+            percent_scale = 100.0 / total if total > 0 else 0.0
+
+            print("\n[TIMING] Overall performance:")
+            print(f"  frames examined : {frames:8d}")
+            print(f"  frames selected : {self.dft_count:8d}")
             print(f"  total           : {total:8.2f}")
-            print(f"    extract_dft   : {extract:8.2f} ({extract/total*100:4.1f}%)")
-            print(f"    predict       : {pred:8.2f} ({pred/total*100:4.1f}%)")
-            print(f"    update        : {upd:8.2f} ({upd/total*100:4.1f}%)")
-            print(f"    io_write      : {iow:8.2f} ({iow/total*100:4.1f}%)")
-            print(f"    other         : {oth:8.2f} ({oth/total*100:4.1f}%)")
-
-    # ------------------------------------------------------------------
-    # GP creation and update
-    # ------------------------------------------------------------------
-
-    def _get_sgp_calc(self, flare_config):
-        """
-        Return a SGP_Calculator with sgp from SparseGP
-        source: https://github.com/mir-group/flare/blob/master/flare/scripts/otf_train.py
-        """
-        from flare.bffs.sgp._C_flare import NormalizedDotProduct, SquaredExponential
-        from flare.bffs.sgp._C_flare import B2, B3, TwoBody, ThreeBody, FourBody
-        from flare.bffs.sgp import SGP_Wrapper
-        from flare.bffs.sgp.calculator import SGP_Calculator
-
-        sgp_file = flare_config.get("file", None)
-
-        # Load sparse GP from file
-        if sgp_file is not None:
-            with open(sgp_file, "r") as f:
-                gp_dct = json.loads(f.readline())
-                if gp_dct.get("class", None) == "SGP_Calculator":
-                    flare_calc, kernels = SGP_Calculator.from_file(sgp_file)
-                else:
-                    sgp, kernels = SGP_Wrapper.from_file(sgp_file)
-                    flare_calc = SGP_Calculator(sgp)
-            return flare_calc, kernels
-
-        kernels = flare_config.get("kernels")
-        opt_algorithm = flare_config.get("opt_algorithm", "BFGS")
-        max_iterations = flare_config.get("max_iterations", 20)
-        bounds = flare_config.get("bounds", None)
-        use_mapping = flare_config.get("use_mapping", False)
-
-        # Define kernels.
-        kernels = []
-        for k in flare_config["kernels"]:
-            if k["name"] == "NormalizedDotProduct":
-                kernels.append(NormalizedDotProduct(k["sigma"], k["power"]))
-            elif k["name"] == "SquaredExponential":
-                kernels.append(SquaredExponential(k["sigma"], k["ls"]))
-            else:
-                raise NotImplementedError(f"{k['name']} kernel is not implemented")
-
-        # Define descriptor calculators.
-        n_species = len(flare_config["species"])
-        cutoff = flare_config["cutoff"]
-        descriptors = []
-        for d in flare_config["descriptors"]:
-            if "cutoff_matrix" in d:  # multiple cutoffs
-                assert np.allclose(
-                    np.array(d["cutoff_matrix"]).shape, (n_species, n_species)
-                ), "cutoff_matrix needs to be of shape (n_species, n_species)"
-
-            if d["name"] == "B2":
-                radial_hyps = [0.0, cutoff]
-                cutoff_hyps = []
-                descriptor_settings = [n_species, d["nmax"], d["lmax"]]
-                if "cutoff_matrix" in d:  # multiple cutoffs
-                    desc_calc = B2(
-                        d["radial_basis"],
-                        d["cutoff_function"],
-                        radial_hyps,
-                        cutoff_hyps,
-                        descriptor_settings,
-                        d["cutoff_matrix"],
-                    )
-                else:
-                    desc_calc = B2(
-                        d["radial_basis"],
-                        d["cutoff_function"],
-                        radial_hyps,
-                        cutoff_hyps,
-                        descriptor_settings,
-                    )
-
-            elif d["name"] == "B3":
-                radial_hyps = [0.0, cutoff]
-                cutoff_hyps = []
-                descriptor_settings = [n_species, d["nmax"], d["lmax"]]
-                desc_calc = B3(
-                    d["radial_basis"],
-                    d["cutoff_function"],
-                    radial_hyps,
-                    cutoff_hyps,
-                    descriptor_settings,
-                )
-
-            elif d["name"] == "TwoBody":
-                desc_calc = TwoBody(
-                    cutoff, n_species, d["cutoff_function"], cutoff_hyps
-                )
-
-            elif d["name"] == "ThreeBody":
-                desc_calc = ThreeBody(
-                    cutoff, n_species, d["cutoff_function"], cutoff_hyps
-                )
-
-            elif d["name"] == "FourBody":
-                desc_calc = FourBody(
-                    cutoff, n_species, d["cutoff_function"], cutoff_hyps
-                )
-
-            else:
-                raise NotImplementedError(f"{d['name']} descriptor is not supported")
-
-            descriptors.append(desc_calc)
-
-        # Define remaining parameters for the SGP wrapper.
-        species_map = {flare_config.get("species")[i]: i for i in range(n_species)}
-        sae_dct = flare_config.get("single_atom_energies", None)
-        if sae_dct is not None:
-            assert n_species == len(
-                sae_dct
-            ), "'single_atom_energies' should be the same length as 'species'"
-            single_atom_energies = {i: sae_dct[i] for i in range(n_species)}
-        else:
-            single_atom_energies = {i: 0 for i in range(n_species)}
-
-        sgp = SGP_Wrapper(
-            kernels=kernels,
-            descriptor_calculators=descriptors,
-            cutoff=cutoff,
-            sigma_e=flare_config.get("energy_noise", 0.1),
-            sigma_f=flare_config.get("forces_noise", 0.05),
-            sigma_s=flare_config.get("stress_noise", 0.1),
-            species_map=species_map,
-            variance_type=flare_config.get("variance_type", "local"),
-            single_atom_energies=single_atom_energies,
-            energy_training=flare_config.get("energy_training", True),
-            force_training=flare_config.get("force_training", True),
-            stress_training=flare_config.get("stress_training", True),
-            max_iterations=max_iterations,
-            opt_method=opt_algorithm,
-            bounds=bounds,
-        )
-
-        flare_calc = SGP_Calculator(sgp, use_mapping)
-        return flare_calc, kernels
+            print(f"  time per frame  : {seconds_per_frame:8.3f} s")
+            print(f"  throughput      : {frames_per_second:8.3f} frames/s")
+            print("  breakdown (s):")
+            print(f"    extract_dft   : {extract:8.2f} ({extract * percent_scale:4.1f}%)")
+            print(f"    predict       : {pred:8.2f} ({pred * percent_scale:4.1f}%)")
+            print(f"    update        : {upd:8.2f} ({upd * percent_scale:4.1f}%)")
+            print(f"    io_write      : {iow:8.2f} ({iow * percent_scale:4.1f}%)")
+            print(f"    other         : {oth:8.2f} ({oth * percent_scale:4.1f}%)")
 
     def _store_selected_frame(self, step: int, ase_frame, target_atoms: Sequence[int]):
         """Keep a copy of the selected ASE frame for writing to XYZ."""
@@ -704,73 +626,3 @@ class DEAL:
         self.timers["io_write"] += time.perf_counter() - t_io0
         self.selected_frames.append(sel)
         self.dft_count += 1
-
-    def _update_gp(
-        self,
-        atoms,
-        train_atoms: Sequence[int],
-        dft_frcs: np.ndarray,
-        dft_energy: float | None = None,
-        dft_stress: np.ndarray | None = None,
-    ) -> None:
-        """
-        Update the SGP using DFT forces (and optionally energies/stress)
-        on the current FLARE_Atoms structure.
-
-        This mirrors original update gp from FLARE OTF, but without
-        wall-time logging or mapping.
-        """
-        # Convert stress into FLARE convention if present
-        flare_stress = None
-        if dft_stress is not None:
-            dft_stress = np.asarray(dft_stress)
-            # allow either 3x3 tensor or 6-vector from ASE
-            if dft_stress.shape == (3, 3):
-                xx, yy, zz = dft_stress[0, 0], dft_stress[1, 1], dft_stress[2, 2]
-                yz, xz, xy = dft_stress[1, 2], dft_stress[0, 2], dft_stress[0, 1]
-                dft_stress_voigt = np.array([xx, yy, zz, yz, xz, xy])
-            else:
-                dft_stress_voigt = dft_stress
-
-            # ASE uses +sigma; FLARE uses -sigma in this convention
-            flare_stress = -np.array(
-                [
-                    dft_stress_voigt[0],
-                    dft_stress_voigt[5],
-                    dft_stress_voigt[4],
-                    dft_stress_voigt[1],
-                    dft_stress_voigt[3],
-                    dft_stress_voigt[2],
-                ]
-            )
-
-        if self.deal_cfg.force_only:
-            dft_energy = None
-            flare_stress = None
-
-        # Store a copy of the structure, attach DFT labels via SinglePointCalculator
-        struc_to_add = deepcopy(atoms)
-
-        sp_results = {"forces": dft_frcs}
-        if dft_energy is not None:
-            sp_results["energy"] = dft_energy
-        if flare_stress is not None:
-            sp_results["stress"] = flare_stress
-
-        struc_to_add.calc = SinglePointCalculator(struc_to_add, **sp_results)
-
-        # Update GP database
-        self.gp.update_db(
-            struc_to_add,
-            dft_frcs,
-            custom_range=list(train_atoms),
-            energy=dft_energy,
-            stress=np.zeros(6) if flare_stress is None else flare_stress,
-        )
-
-        # Update internal L and alpha
-        self.gp.set_L_alpha()
-
-        # Train hyperparameters
-        if self.deal_cfg.train_hyps:
-            self.gp.train(logger_name=None)

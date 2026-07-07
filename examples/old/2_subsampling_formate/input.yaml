@@ -1,0 +1,14 @@
+data:
+  files: "a_input/fcu.xyz"     # can be a single value or a list             
+  index: ":"                   # frames to consider during file reading (see ASE notation)  
+  shuffle: true                # shuffle the data before selection -> useful to decorrelate frames if they come from an MD trajectory
+
+deal:
+  threshold: 0.15              # can be a single value or a list 
+  mask: false
+  max_atoms_added: 0.15        # fraction of atoms that can be added per configuration
+  initial_atoms: 0.2           # use up to 20% of the atoms of each species for GP initialization
+  output_prefix: "b_selection/deal_0.15"   # prefix for output files
+  
+sgp:
+  cutoff: 4.5

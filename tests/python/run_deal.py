@@ -1,4 +1,4 @@
-from deal import DataConfig, DEALConfig, FlareConfig, DEAL
+from deal import DataConfig, DEALConfig, SGPConfig, DEAL
 
 input_path = '../data/traj.xyz'
 
@@ -14,12 +14,13 @@ for deal_threshold in deal_thresholds:
 
     deal_cfg = DEALConfig(
         threshold=deal_threshold,
+        mask=False,
         output_prefix=output_prefix,
         verbose='debug',
     )
 
-    flare_cfg = FlareConfig(cutoff=cutoff)
+    sgp_cfg = SGPConfig(cutoff=cutoff)
 
-    deal = DEAL(data_cfg, deal_cfg, flare_cfg)
+    deal = DEAL(data_cfg, deal_cfg, sgp_cfg)
     # uncomment to run
     deal.run()

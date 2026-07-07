@@ -1,0 +1,18 @@
+data:
+  files: "../b_preselection/traj-preselection.xyz"
+  index: ":"
+  shuffle: false          # already shuffled in preselection step
+
+deal:
+  threshold:                     # can be a single value or a list 
+  - 0.05
+  - 0.10
+  - 0.15
+  mask: false
+  max_atoms_added: 0.15          # fraction of atoms that can be added per configuration
+  initial_atoms: 0.2             # use up to 20% of the atoms of each species for initial training
+  output_prefix: deal            # prefix for output files (threshold will be appended as suffix) 
+  verbose: true                  # allowed values: true/false/"debug" (default: false)
+
+sgp:
+  cutoff: 5.0

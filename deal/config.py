@@ -100,7 +100,7 @@ class DEALConfig:
     update_threshold: Optional[float] = None
     max_selected: Optional[int] = None
     max_iterations: int = 10
-    threshold_factor: float = 0.75
+    threshold_factor: float = 0.7
 
     max_atoms_added: Optional[float | int] = 0.2
     # max_atoms_added can be:
@@ -110,16 +110,10 @@ class DEALConfig:
     #
     min_steps_with_model: int = 0  # frames between two selections
 
-    uncertainty_key: Optional[str] = None
-    uncertainty_threshold: Optional[float] = None
-    uncertainty_rejected_value: float = -1.0
-    uncertainty_filter_initial_atoms: bool = False
-    uncertainty_filter_update_atoms: bool = True
-    # Optional per-atom preselection from an uncertainty array already stored in
-    # the input trajectory. When enabled, only atoms with
-    # arrays[uncertainty_key] > uncertainty_threshold can trigger selection.
-    # If uncertainty_filter_update_atoms is true, the same mask is applied to
-    # atoms added to the GP from selected frames.
+    mask: bool | str | None = None
+    # Candidate atom mask. None/False means all atoms are eligible. The CLI
+    # resolves None to the preprocessing mask when preprocessing is configured.
+    # True means read "deal_mask"; a string means read that per-atom array.
 
     initial_atoms: Optional[List[int] | float] = None
     # atoms to use for initial training. Allowed values:
@@ -140,6 +134,14 @@ class DEALConfig:
 
     # --- Validation of parameters ---
     def __post_init__(self):
+        # YAML only recognizes ``null``/``~`` as null values; accept the
+        # commonly used ``none`` spelling as well for backwards compatibility.
+        if isinstance(self.update_threshold, str) and self.update_threshold.lower() in {
+            "none",
+            "null",
+        }:
+            self.update_threshold = None
+
         if not isinstance(self.threshold, Real):
             raise TypeError(
                 f"'threshold' must be a scalar float/int, got {type(self.threshold)}."
@@ -170,39 +172,15 @@ class DEALConfig:
                 f"'max_iterations' must be >= 1, got {self.max_iterations}."
             )
 
-        has_uncertainty_key = self.uncertainty_key is not None
-        has_uncertainty_threshold = self.uncertainty_threshold is not None
-        if has_uncertainty_key != has_uncertainty_threshold:
-            raise ValueError(
-                "'uncertainty_key' and 'uncertainty_threshold' must be set together."
-            )
-        if has_uncertainty_key and not isinstance(self.uncertainty_key, str):
+        if self.mask is not None and not (
+            isinstance(self.mask, bool) or isinstance(self.mask, str)
+        ):
             raise TypeError(
-                f"'uncertainty_key' must be a string or None, got {type(self.uncertainty_key)}."
+                "'mask' must be null, true/false, or a per-atom array name, "
+                f"got {type(self.mask)}."
             )
-        if has_uncertainty_threshold:
-            if not isinstance(self.uncertainty_threshold, Real):
-                raise TypeError(
-                    "'uncertainty_threshold' must be a scalar float/int or None, "
-                    f"got {type(self.uncertainty_threshold)}."
-                )
-            self.uncertainty_threshold = float(self.uncertainty_threshold)
-        if not isinstance(self.uncertainty_rejected_value, Real):
-            raise TypeError(
-                "'uncertainty_rejected_value' must be a scalar float/int, "
-                f"got {type(self.uncertainty_rejected_value)}."
-            )
-        self.uncertainty_rejected_value = float(self.uncertainty_rejected_value)
-        if not isinstance(self.uncertainty_filter_initial_atoms, bool):
-            raise TypeError(
-                "'uncertainty_filter_initial_atoms' must be a bool, "
-                f"got {type(self.uncertainty_filter_initial_atoms)}."
-            )
-        if not isinstance(self.uncertainty_filter_update_atoms, bool):
-            raise TypeError(
-                "'uncertainty_filter_update_atoms' must be a bool, "
-                f"got {type(self.uncertainty_filter_update_atoms)}."
-            )
+        if isinstance(self.mask, str) and self.mask == "":
+            raise ValueError("'mask' cannot be an empty string.")
 
         self.threshold_factor = float(self.threshold_factor)
         if not (0 < self.threshold_factor < 1):
@@ -268,7 +246,7 @@ class DEALConfig:
 
 
 @dataclass
-class FlareConfig:
+class SGPConfig:
     # --- gp ---
     gp: str = "SGP_Wrapper"
 
