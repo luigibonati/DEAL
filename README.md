@@ -29,7 +29,26 @@ A short practical [introduction](DEAL.md) describes the main ingredients (SGP, l
 
 ---
 
+## Release highlights
+
+The latest DEAL release includes a self-contained sparse-GP backend with only
+the minimal operations required by the active-learning workflow. This backend is
+implemented in DEAL's native extension and substantially improves GP update
+times compared with the previous DEAL release, which relied on a separate
+native FLARE installation.
+
+<img src="imgs/DEAL-sgp_timing.png" alt="DEAL sparse-GP timing comparison" width="824"/>
+
+DEAL can also restrict GP evaluation to the atomic environments that are
+relevant for selection, using an MLP uncertainty criterion as a preselection
+mask. This significantly reduces prediction time, especially for reactive,
+interface, and defect-containing systems, where only localized regions are
+typically important for the active-learning decision.
+
+---
+
 ## Table of contents
+- ✨ [Release highlights](#release-highlights)
 - 📚 [Contents](#-contents)
 - 🔧 [Dependencies](#-dependencies)
 - 🚀 [Installation](#-installation)
@@ -74,8 +93,9 @@ DEAL requires:
 ## 🚀 Installation
 
 DEAL is now installed as a standalone package. A separate FLARE installation is
-not required; the minimal sparse-GP backend used by DEAL is built as DEAL's
-native extension.
+no longer required: the minimal sparse-GP backend used by DEAL, which is based
+on the native FLARE GP implementation, is now contained in DEAL's own native
+extension and is built during installation.
 
 Create the conda environment and install DEAL:
 
