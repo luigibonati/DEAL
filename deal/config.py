@@ -100,7 +100,7 @@ class DEALConfig:
     update_threshold: Optional[float] = None
     max_selected: Optional[int] = None
     max_iterations: int = 10
-    threshold_factor: float = 0.75
+    threshold_factor: float = 0.7
 
     max_atoms_added: Optional[float | int] = 0.2
     # max_atoms_added can be:

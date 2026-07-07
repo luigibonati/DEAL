@@ -23,7 +23,7 @@ traj_input = read(traj_input_file, ":")
 # ------------------------
 frames_selected = set()
 
-threshold_factor = 0.75
+threshold_factor = 0.7
 thresholds = [np.round(np.power(threshold_factor,i+1), 3) for i in range(max_iterations)]
 
 for iter, deal_threshold in enumerate(thresholds):

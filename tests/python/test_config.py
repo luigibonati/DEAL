@@ -8,6 +8,7 @@ def main():
     default = DEALConfig(threshold=0.5)
     assert default.mask is None
     assert default.update_threshold == 0.4
+    assert default.threshold_factor == 0.7
 
     # Lowercase ``none`` is parsed by PyYAML as a string. Keep accepting the
     # spelling used by older DEAL templates and apply the computed default.

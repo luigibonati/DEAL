@@ -1,0 +1,5 @@
+data:
+  files: traj.xyz
+
+deal:
+  max_selected: 140

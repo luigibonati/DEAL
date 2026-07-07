@@ -115,6 +115,7 @@ def _apply_preprocessing(data_cfg: DataConfig, config: dict) -> None:
     output = config.pop("output", None)
     overwrite = config.pop("overwrite", False)
     output_format = config.pop("output_format", None)
+    selected_frames_only = config.pop("selected_frames_only", False)
     masker = TrajectoryMasker(**config)
     summary = masker.apply_to_trajectory(data_cfg.images or [])
     print(
@@ -139,6 +140,8 @@ def _apply_preprocessing(data_cfg: DataConfig, config: dict) -> None:
             output,
             file_format=output_format,
             overwrite=overwrite,
+            selected_frames_only=selected_frames_only,
+            mask_key=masker.mask_key,
         )
         status = "saved" if written else "kept existing"
         print(f"[DEAL preprocessing] trajectory={output} ({status})")
@@ -147,7 +150,7 @@ def _apply_preprocessing(data_cfg: DataConfig, config: dict) -> None:
 def _run_incremental_cli(data_cfg: DataConfig, deal_dict: dict, sgp_cfg: SGPConfig) -> None:
     max_selected = deal_dict.get("max_selected")
     max_iterations = deal_dict.get("max_iterations", 10)
-    threshold_factor = deal_dict.get("threshold_factor", 0.75)
+    threshold_factor = deal_dict.get("threshold_factor", 0.7)
     rng = np.random.default_rng(data_cfg.seed) # use same seed for shuffling at each iteration
 
     print(f"[DEAL] Running in incremental mode with max_selected = {max_selected}.")

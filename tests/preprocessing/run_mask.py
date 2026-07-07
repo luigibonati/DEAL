@@ -103,6 +103,17 @@ with TemporaryDirectory() as tmpdir:
     assert output.read_bytes() != original
 
 with TemporaryDirectory() as tmpdir:
+    output = Path(tmpdir) / "selected_frames.xyz"
+    assert write_preprocessed_trajectory(
+        trajectory,
+        str(output),
+        selected_frames_only=True,
+    )
+    selected_frames = read(output, index=":", format="extxyz")
+    assert len(selected_frames) == 1
+    np.testing.assert_array_equal(selected_frames[0].arrays["deal_mask"], [0, 1])
+
+with TemporaryDirectory() as tmpdir:
     workdir = Path(tmpdir)
     source = workdir / "source.xyz"
     output = workdir / "from_yaml.xyz"
@@ -117,6 +128,7 @@ with TemporaryDirectory() as tmpdir:
                     "mask_threshold": 0.5,
                     "plot": False,
                     "output": str(output),
+                    "selected_frames_only": True,
                 },
             }
         )
@@ -129,4 +141,5 @@ with TemporaryDirectory() as tmpdir:
         sys.argv = old_argv
     assert output.is_file()
     masked = read(output, index=":", format="extxyz")
+    assert len(masked) == 1
     np.testing.assert_array_equal(masked[0].arrays["deal_mask"], [0, 1])

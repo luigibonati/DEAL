@@ -60,6 +60,7 @@ class DEAL:
             "update": 0.0,
             "io_write": 0.0,
             "other": 0.0,
+            "frames": 0,
         }
 
     def configure_run(
@@ -282,6 +283,7 @@ class DEAL:
     # ------------------------------------------------------------------
     def run(self) -> None:
         for step, ase_frame in enumerate(self._frames()):
+            self.timers["frames"] += 1
             step_start = time.perf_counter()
             init_frame = False
             # 1) DFT labels from original ASE frame
@@ -593,13 +595,23 @@ class DEAL:
             iow = self.timers["io_write"]
             oth = max(0.0, total - (extract + pred + upd + iow))
             self.timers["other"] = oth
-            print("\n[TIMING] Summary (s):")
+            frames = self.timers["frames"]
+            seconds_per_frame = total / frames if frames else 0.0
+            frames_per_second = frames / total if total > 0 else 0.0
+            percent_scale = 100.0 / total if total > 0 else 0.0
+
+            print("\n[TIMING] Overall performance:")
+            print(f"  frames examined : {frames:8d}")
+            print(f"  frames selected : {self.dft_count:8d}")
             print(f"  total           : {total:8.2f}")
-            print(f"    extract_dft   : {extract:8.2f} ({extract/total*100:4.1f}%)")
-            print(f"    predict       : {pred:8.2f} ({pred/total*100:4.1f}%)")
-            print(f"    update        : {upd:8.2f} ({upd/total*100:4.1f}%)")
-            print(f"    io_write      : {iow:8.2f} ({iow/total*100:4.1f}%)")
-            print(f"    other         : {oth:8.2f} ({oth/total*100:4.1f}%)")
+            print(f"  time per frame  : {seconds_per_frame:8.3f} s")
+            print(f"  throughput      : {frames_per_second:8.3f} frames/s")
+            print("  breakdown (s):")
+            print(f"    extract_dft   : {extract:8.2f} ({extract * percent_scale:4.1f}%)")
+            print(f"    predict       : {pred:8.2f} ({pred * percent_scale:4.1f}%)")
+            print(f"    update        : {upd:8.2f} ({upd * percent_scale:4.1f}%)")
+            print(f"    io_write      : {iow:8.2f} ({iow * percent_scale:4.1f}%)")
+            print(f"    other         : {oth:8.2f} ({oth * percent_scale:4.1f}%)")
 
     def _store_selected_frame(self, step: int, ase_frame, target_atoms: Sequence[int]):
         """Keep a copy of the selected ASE frame for writing to XYZ."""

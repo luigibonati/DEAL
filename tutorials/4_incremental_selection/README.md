@@ -9,7 +9,7 @@ lower thresholds, so you can stop when a target number of selected structures is
 
 Incremental selection is now integrated in the CLI.
 
-Run directly with defaults (`max_iterations=10`, with a decay `threshold_factor=0.75`):
+Run directly with defaults (`max_iterations=10`, with a decay `threshold_factor=0.7`):
 
 ```bash
 deal --file input/fcu_ev5.xyz.gz --max-selected 20
@@ -19,15 +19,15 @@ deal --file input/fcu_ev5.xyz.gz --max-selected 20
 ```
 [DEAL] Running in incremental mode with max_selected = 20.
 
-[DEAL] Iteration 1 (threshold: 0.75)
+[DEAL] Iteration 1 (threshold: 0.7)
 [DEAL] Examined:   200 | Selected:     8 | Speed:   0.43 s/step | Elapsed:    99.06 s
 [DEAL] New selected: 8 
 
-[DEAL] Iteration 2 (threshold: 0.562)
+[DEAL] Iteration 2 (threshold: 0.49)
 [DEAL] Examined:   192 | Selected:    12 | Speed:   0.43 s/step | Elapsed:   199.18 s
 [DEAL] New selected: 4 
 
-[DEAL] Iteration 3 (threshold: 0.422)
+[DEAL] Iteration 3 (threshold: 0.343)
 [DEAL] Examined:   188 | Selected:    24 | Speed:   0.44 s/step | Elapsed:   378.14 s
 [DEAL] New selected: 12 
 
@@ -47,7 +47,7 @@ data:
 deal:
   max_selected: 20
   max_iterations: 10
-  threshold_factor: 0.75
+  threshold_factor: 0.7
   output_prefix: "deal_incremental"
 ```
 

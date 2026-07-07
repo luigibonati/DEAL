@@ -13,7 +13,7 @@ It consists of two steps:
 1. preselection using the MLP uncertainty (e.g. max uncertainty obtained with query-by-committee)
 2. select a dataset of non-redundant configurations using the local predictive variance of a Gaussian Process
 
-In addition, step 2. can be also used to perform subsampling of a trajectory even without the uncertainty pre-selection (see [examples](examples/README.md))
+In addition, step 2 can also be used to subsample a trajectory without uncertainty preselection (see the [tutorials](tutorials/README.md)).
 
 A short practical [introduction](DEAL.md) describes the main ingredients (SGP, local descriptors, uncertainty).
 
@@ -25,7 +25,7 @@ A short practical [introduction](DEAL.md) describes the main ingredients (SGP, l
     <img src="imgs/analysis.png" alt="drawing" width="824"/>
 * Interactive visualization using [chemiscope](https://chemiscope.org/)
 
-    <a href="https://chemiscope.org/?load=https://raw.githubusercontent.com/luigibonati/DEAL/refs/heads/main/examples/2_subsampling_formate/b_selection/deal_0.15_chemiscope.json.gz"> <img src="imgs/chemiscope-viewer.png" alt="drawing" width="412"></a>
+    <a href="https://chemiscope.org/?load=https://raw.githubusercontent.com/luigibonati/DEAL/refs/heads/main/tutorials/2_subsampling_formate/b_selection/deal_0.15_chemiscope.json.gz"> <img src="imgs/chemiscope-viewer.png" alt="drawing" width="412"></a>
 
 ---
 
@@ -50,7 +50,8 @@ A short practical [introduction](DEAL.md) describes the main ingredients (SGP, l
 ## 📚 Contents
 
 * **`deal/`** – The core Python package.
-* **`examples/`** – Four realistic workflows demonstrating how to use DEAL in practice.
+* **`examples/`** – Two minimal, runnable CLI and YAML examples.
+* **`tutorials/`** – Four guided, realistic workflows demonstrating how DEAL works.
 * **`npj_supporting_data/`** – Jupyter notebooks reproducing the full workflow described in the publication, including the use of Gaussian Process Regression for reaction-pathway exploration.
 * **`tests/`** – A test suite to verify that the installation is correct and all components work as expected.
 
@@ -120,7 +121,8 @@ DEAL will automatically:
 
 ### 📄 With a YAML config file
 
-For more customization you can create an `input.yaml` file (below are the default):
+For more customization, create an `input.yaml` file. The values below match the
+runtime defaults; `data.files` is the only required entry:
 
 ```bash
 deal -c input.yaml
@@ -132,7 +134,7 @@ data:
   #format: "extxyz"        # file format (e.g. extxyz, xyz, ...)
   #index: ":"              # frame selection [see ASE notation]
   #shuffle: false          # whether to shuffle the frames before processing 
-  #seed: 42
+  #seed: 24
 
 # Optional: derive the candidate mask in memory from an existing per-atom
 # uncertainty array. This avoids writing an intermediate masked trajectory.
@@ -144,14 +146,15 @@ data:
 #  mask_upper_threshold: 0.10 # required for between/outside
 #  plot: true               # true, false, or an output filename
 #  output: traj_preprocessed.xyz # optional; also honored by `deal -c`
+#  selected_frames_only: false # write only frames containing selected atoms
 #  overwrite: false         # preserve an existing output by default
 
 deal:
-  threshold: 0.1          # standard mode: scalar or list of values
+  threshold: 1.0          # standard mode: scalar or list of values
   # OR
   #max_selected: 50       # incremental mode: mutually exclusive with `threshold`
   #max_iterations: 10     # max iterations for incremental mode
-  #threshold_factor: 0.75 # threshold_i = threshold_factor**(i+1)
+  #threshold_factor: 0.7  # threshold_i = threshold_factor**(i+1)
   
   update_threshold: null # if not set it is chosen as 0.8 * threshold
   max_atoms_added: 0.2    # limit the number of selected environments added per configuration (can be int (number of atoms) float (0,1) (fraction of total atoms), or -1 (no limit)
@@ -160,7 +163,7 @@ deal:
   output_prefix: deal     # prefix for output files
   force_only: true
   train_hyps: false       # whether to re-train hyperparameters at each iteration (slower) 
-  verbose: true           # allowed values: true/false/"debug" (default: true)
+  verbose: false          # allowed values: true/false/"debug"
   save_gp: false
   save_full_trajectory: false  # if true, writes <prefix>_trajectory_uncertainty.xyz with per-atom array "atomic_uncertainty"
 
@@ -251,6 +254,11 @@ uncertainty distributions and shows the automatic frame thresholds.
 or pass `deal-mask --overwrite` to replace one. This makes repeated DEAL runs
 safe while retaining a reusable preprocessed trajectory when requested.
 
+By default, the output contains every input frame and stores the selection in
+the per-atom mask. Set `selected_frames_only: true` in `preprocessing:` or pass
+`deal-mask --selected-frames-only` to write only frames containing at least one
+selected atom.
+
 CLI equivalents are `--preprocess-key`, `--preprocess-mask-threshold`,
 `--preprocess-mode`, `--preprocess-mask-upper-threshold`, and
 `--preprocess-plot`.
@@ -273,9 +281,7 @@ from deal import DataConfig, DEALConfig, SGPConfig, DEAL
 # Define Config (uses defaults where not provided)
 data_cfg = DataConfig(files="traj.xyz")
 deal_cfg = DEALConfig(
-    threshold=0.1,
-    mask=False,
-    output_prefix="deal",
+    threshold=1.0,
 )
 sgp_cfg = SGPConfig()
 
@@ -316,7 +322,7 @@ Use incremental mode when you want to select up to a target number of structures
 deal:
   max_selected: 50
   max_iterations: 10
-  threshold_factor: 0.75
+  threshold_factor: 0.7
 ```
 
 At each iteration `i` (starting from 1), the threshold is decreased as:
@@ -426,7 +432,7 @@ Some tips:
 - The uncertainty values are unitless, and range between 0 and 1. Lower threshold means more selected structures; higher threshold, fewer selections. 
 - A good starting point is around 0.1. As a rule of thumb, homogeneous, condensed and/or crystalline systems tend to have fewer different local environments and require smaller thresholds (<<0.1), whereas heterogeneous systems may require larger ones (>0.1). This is also connected with the number of species (more species -> higher treshold required).
 - Try a few values and compare how many structures are selected; distributions often are very similar across thresholds, what changes is the number of structures. One can decide based on the computational budget (for DFT calculations).
-- A practical strategy is to perform **incremental selection**: start with a high threshold, then decrease it progressively until a target number of structures is reached (see Example 4).
+- A practical strategy is to perform **incremental selection**: start with a high threshold, then decrease it progressively until a target number of structures is reached (see [Tutorial 4](tutorials/4_incremental_selection/README.md)).
 - Use chemiscope/OVITO to visualize the selected structures and identify which environments triggered selection. 
 
 Note: the training time scales unfavorably with the number of samples. For a large dataset, it is advised to divide it in chuncks and run DEAL separately on each of them, and then performing a second DEAL selection on the output structures. 

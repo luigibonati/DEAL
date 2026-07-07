@@ -17,13 +17,26 @@ def write_preprocessed_trajectory(
     output_file: str,
     file_format: str | None = None,
     overwrite: bool = False,
+    selected_frames_only: bool = False,
+    mask_key: str = "deal_mask",
 ) -> bool:
     """Write masked frames, returning False when an existing file is preserved."""
     output = Path(output_file)
     if output.exists() and not overwrite:
         return False
+    images = list(images)
+    if selected_frames_only:
+        missing = [i for i, atoms in enumerate(images) if mask_key not in atoms.arrays]
+        if missing:
+            raise RuntimeError(
+                f"Cannot filter selected frames: mask array '{mask_key}' is "
+                f"missing from frame {missing[0]}."
+            )
+        images = [atoms for atoms in images if np.any(atoms.arrays[mask_key])]
+        if not images:
+            raise ValueError("No frames contain selected atoms; no trajectory was written.")
     output.parent.mkdir(parents=True, exist_ok=True)
-    write(output, list(images), format=file_format)
+    write(output, images, format=file_format)
     return True
 
 
@@ -294,6 +307,7 @@ class TrajectoryMasker:
         index: str = ":",
         file_format: str | None = None,
         overwrite: bool = False,
+        selected_frames_only: bool = False,
     ) -> MaskSummary:
         images = list(iread(input_file, index=index, format=file_format))
         summary = self.apply_to_trajectory(images)
@@ -302,5 +316,7 @@ class TrajectoryMasker:
             output_file,
             file_format=file_format,
             overwrite=overwrite,
+            selected_frames_only=selected_frames_only,
+            mask_key=self.mask_key,
         )
         return summary

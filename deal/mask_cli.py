@@ -53,6 +53,12 @@ def parse_args():
         default=None,
         help="Replace an existing preprocessed trajectory.",
     )
+    parser.add_argument(
+        "--selected-frames-only",
+        action="store_true",
+        default=None,
+        help="Write only frames containing at least one selected atom.",
+    )
     return parser.parse_args()
 
 
@@ -97,6 +103,7 @@ def main() -> None:
         "output": args.output,
         "output_format": args.output_format,
         "overwrite": args.overwrite,
+        "selected_frames_only": args.selected_frames_only,
     }
     if args.plot is not None:
         cli_preprocessing["plot"] = _parse_plot(args.plot)
@@ -116,6 +123,7 @@ def main() -> None:
     output = preprocessing.pop("output", None) or _default_output(files[0])
     output_format = preprocessing.pop("output_format", None)
     overwrite = preprocessing.pop("overwrite", False)
+    selected_frames_only = preprocessing.pop("selected_frames_only", False)
     data_cfg = DataConfig(**data)
     masker = TrajectoryMasker(**preprocessing)
     summary = masker.apply_to_trajectory(data_cfg.images or [])
@@ -124,6 +132,8 @@ def main() -> None:
         output,
         file_format=output_format,
         overwrite=overwrite,
+        selected_frames_only=selected_frames_only,
+        mask_key=masker.mask_key,
     )
 
     print(
