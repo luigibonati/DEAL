@@ -154,30 +154,24 @@ class DEAL:
 
     def _extract_dft(self, ase_atoms):
         """
-        Extract DFT forces / energy / stress from a frame.
+        Extract any DFT forces / energy / stress available on a frame.
 
-        Assumes the extxyz was written with energies and forces and that
-        ASE has attached a SinglePointCalculator to atoms.calc.
+        Labels are optional: DEAL can select configurations from geometry and
+        local uncertainty alone.  ASE only attaches a calculator to extxyz
+        frames that contain calculator results, so an absent calculator is a
+        valid representation of an unlabeled trajectory.
         """
-        if ase_atoms.calc is None:
-            raise RuntimeError(
-                "Frame has no calculator attached. Make sure your extxyz "
-                "contains energies/forces so ASE builds a SinglePointCalculator."
+        res = getattr(ase_atoms.calc, "results", {}) or {}
+        forces = np.asarray(res["forces"]) if "forces" in res else None
+        energy = (
+            float(res["energy"])
+            if "energy" in res
+            else (
+                float(ase_atoms.info["energy"])
+                if "energy" in ase_atoms.info
+                else None
             )
-
-        res = ase_atoms.calc.results
-        if "forces" not in res:
-            raise RuntimeError(
-                "Frame is missing 'forces' in calculator results. "
-                "Input data must include force labels."
-            )
-        if "energy" not in res and "energy" not in ase_atoms.info:
-            raise RuntimeError(
-                "Frame is missing 'energy' in calculator results/info. "
-                "Input data must include energy labels."
-            )
-        forces = np.array(res["forces"])
-        energy = float(res["energy"]) if "energy" in res else float(ase_atoms.info["energy"])
+        )
         stress = res.get("stress", None)
 
         return forces, energy, stress

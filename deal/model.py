@@ -142,7 +142,7 @@ class DealActiveLearningModel:
         self,
         atoms,
         train_atoms: Sequence[int],
-        dft_forces: np.ndarray,
+        dft_forces: np.ndarray | None,
         dft_energy: float | None = None,
         dft_stress: np.ndarray | None = None,
         force_only: bool = True,
@@ -160,19 +160,24 @@ class DealActiveLearningModel:
             sgp_stress = None
 
         structure_to_add = deepcopy(atoms)
-        sp_results = {"forces": dft_forces}
+        sp_results = {}
+        if dft_forces is not None:
+            sp_results["forces"] = dft_forces
         if dft_energy is not None:
             sp_results["energy"] = dft_energy
         if sgp_stress is not None:
             sp_results["stress"] = sgp_stress
-        structure_to_add.calc = SinglePointCalculator(structure_to_add, **sp_results)
+        if sp_results:
+            structure_to_add.calc = SinglePointCalculator(
+                structure_to_add, **sp_results
+            )
 
         self.gp.update_db(
             structure_to_add,
             dft_forces,
             custom_range=list(train_atoms),
             energy=dft_energy,
-            stress=np.zeros(6) if sgp_stress is None else sgp_stress,
+            stress=sgp_stress,
         )
         self.gp.set_L_alpha()
         self._update_count += 1

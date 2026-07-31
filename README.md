@@ -357,7 +357,17 @@ Note: `threshold` and `max_selected` are mutually exclusive in the CLI.
 
 ### Input files
 
-As explained in the [introduction](DEAL.md), DEAL builds a model for energy and forces using a sparse Gaussian process, although this is used only as a proxy for uncertainty. For this reason, DEAL expects to receive a trajectory as input, for example stored in an .extxyz file, containing both energies and forces. However, since the predictive uncertainty does not depend on the labels, these do not need to be recalculated at the DFT level; in fact, they could be obtained by evaluating the trajectory with an ML potential.
+As explained in the [introduction](DEAL.md), DEAL uses a sparse Gaussian
+process as a proxy for uncertainty. Input trajectories may be unlabeled: energy,
+forces, and stress are all optional when using the local-uncertainty fast path
+described above. If labels are present in an `.extxyz` file, DEAL preserves and
+uses the available properties; it does not require forces or stress merely to
+select configurations.
+
+Labels are needed only when requesting operations that train the predictive
+model, such as hyperparameter optimization. Configure the matching SGP training
+flags (`energy_training`, `force_training`, and `stress_training`) for the label
+types available in that case.
 
 ### Output files
 
