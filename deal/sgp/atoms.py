@@ -39,7 +39,6 @@ class SGPAtoms(Atoms):
         new_atoms = deepcopy(atoms)
         new_atoms.__class__ = SGPAtoms
         new_atoms.prev_positions = np.zeros_like(new_atoms.positions)
-        new_atoms.pbc = True
         if copy_calc_results:
             new_atoms.calc.results = deepcopy(atoms.calc.results)
         return new_atoms

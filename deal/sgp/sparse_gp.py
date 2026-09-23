@@ -81,8 +81,7 @@ class SGP_Wrapper:
     def supports_center_subset(self):
         """Whether descriptors can be constructed for selected centres only."""
         return bool(self.descriptor_calculators) and all(
-            isinstance(descriptor, B2)
-            for descriptor in self.descriptor_calculators
+            isinstance(descriptor, B2) for descriptor in self.descriptor_calculators
         )
 
     @property
@@ -201,6 +200,7 @@ class SGP_Wrapper:
                 cell=struc_cpp.cell,
                 symbols=species,
                 positions=struc_cpp.positions,
+                pbc=struc_cpp.pbc,
             )
             train_struc.forces = struc_cpp.forces.reshape((struc_cpp.noa, 3))
             train_struc.stress = struc_cpp.stresses
@@ -350,6 +350,7 @@ class SGP_Wrapper:
             structure.cell,
             coded_species,
             structure.positions,
+            np.asarray(structure.pbc, dtype=bool).tolist(),
             self.cutoff,
             self.descriptor_calculators,
         )
@@ -427,6 +428,7 @@ class SGP_Wrapper:
             structure.cell,
             coded_species,
             structure.positions,
+            np.asarray(structure.pbc, dtype=bool).tolist(),
             self.cutoff,
             self.descriptor_calculators,
         )
