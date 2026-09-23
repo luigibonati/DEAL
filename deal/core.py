@@ -239,6 +239,53 @@ class DEAL:
             return list(atom_indices)
         return [idx for idx in atom_indices if 0 <= idx < len(mask) and mask[idx]]
 
+    @staticmethod
+    def _forced_target_atoms(ase_frame, candidate_mask: Optional[np.ndarray]) -> List[int]:
+        """Return validated restart environments requested by frame metadata.
+
+        A forced update deliberately reuses the atom indices stored by a
+        previous DEAL selection. Guessing a replacement set from the current
+        uncertainty would defeat the purpose of a deterministic restart.
+        """
+        if "target_atoms" not in ase_frame.info:
+            raise ValueError(
+                "Frame has 'deal_force_update: true' but no 'target_atoms'. "
+                "Forced updates require the local environments selected by "
+                "the previous run."
+            )
+
+        target_atoms = np.asarray(ase_frame.info["target_atoms"])
+        if target_atoms.ndim != 1 or not np.issubdtype(
+            target_atoms.dtype, np.integer
+        ):
+            raise ValueError(
+                "'target_atoms' on a forced-update frame must be a one-dimensional "
+                "array of integer atom indices."
+            )
+
+        target_atoms = [int(index) for index in target_atoms]
+        if not target_atoms:
+            raise ValueError(
+                "'target_atoms' on a forced-update frame cannot be empty."
+            )
+        if len(set(target_atoms)) != len(target_atoms):
+            raise ValueError(
+                "'target_atoms' on a forced-update frame cannot contain duplicates."
+            )
+        if any(index < 0 or index >= len(ase_frame) for index in target_atoms):
+            raise ValueError(
+                "'target_atoms' on a forced-update frame contains an out-of-range "
+                "atom index."
+            )
+        if candidate_mask is not None and any(
+            not candidate_mask[index] for index in target_atoms
+        ):
+            raise ValueError(
+                "'target_atoms' on a forced-update frame includes atoms excluded "
+                "by the configured candidate mask."
+            )
+        return target_atoms
+
     def _select_masked_target_atoms(self, atoms, mask: np.ndarray):
         """Select target atoms using only atoms that pass the candidate mask."""
         threshold = self.deal_cfg.threshold
@@ -314,6 +361,41 @@ class DEAL:
 
             # 2) Convert to SGP atoms for calculations & uncertainties
             atoms = self.model.to_model_atoms(ase_frame)
+
+            # A selected trajectory can seed a new GP deterministically. The
+            # original selection wrote both ``target_atoms`` and, when opted
+            # in by the user, ``deal_force_update``. Do this before bootstrap
+            # and prediction so it neither depends on nor perturbs the normal
+            # acquisition decision for subsequent frames.
+            if ase_frame.info.get("deal_force_update", False):
+                target_atoms = self._forced_target_atoms(ase_frame, candidate_mask)
+                t_up0 = time.perf_counter()
+                self.model.update(
+                    atoms=atoms,
+                    train_atoms=target_atoms,
+                    dft_forces=dft_forces,
+                    dft_energy=dft_energy,
+                    dft_stress=dft_stress,
+                    force_only=self.deal_cfg.force_only,
+                    train_hyperparameters=self.deal_cfg.train_hyps,
+                    local_uncertainty_only=self._use_local_uncertainty_fast_path(),
+                )
+                update_time = time.perf_counter() - t_up0
+                self.timers["update"] += update_time
+                self.last_dft_step = step
+                self._store_selected_frame(step, ase_frame, target_atoms)
+                self._debug(
+                    step,
+                    decision="select",
+                    reason="forced_restart",
+                    selected_atoms=len(target_atoms),
+                    selected_indices=self._format_atom_indices(target_atoms),
+                    update_s=f"{update_time:.3f}",
+                )
+                elapsed = time.perf_counter() - self.timers["start"]
+                step_time = time.perf_counter() - step_start
+                self._print_progress(step, elapsed, step_time)
+                continue
 
             # 2a) INITIALIZATION: if GP has no training data, use first frame
             #     to bootstrap the model (no uncertainty check).
