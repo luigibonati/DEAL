@@ -393,6 +393,17 @@ explicitly, DEAL reads a per-atom mask array from the trajectory.
 `mask: true` uses the default `deal_mask` array created by `deal-mask`; a string
 value uses that custom array name. Atoms with zero/false mask values are excluded
 from GP uncertainty prediction and written with `atomic_uncertainty = -1.0`.
+
+### Seeding a new GP from previously selected environments
+
+To rebuild a GP from selected environments before processing a new trajectory,
+put the restart frames first in the input and set
+`atoms.info["deal_force_update"] = True` on each of them. Each forced frame
+must also contain `atoms.info["target_atoms"]`, which is written automatically
+in `deal_selected.xyz`; it identifies the exact local environments to reuse.
+Forced updates bypass the uncertainty threshold and `min_steps_with_model`, but
+still respect an enabled candidate mask. DEAL raises an error if the stored
+indices are missing, invalid, duplicated, or masked out.
 Frames with no eligible atoms are skipped. If `mask: false`, every atom is
 eligible.
 
