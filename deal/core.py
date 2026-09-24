@@ -254,7 +254,7 @@ class DEAL:
                 "the previous run."
             )
 
-        target_atoms = np.asarray(ase_frame.info["target_atoms"])
+        target_atoms = np.atleast_1d(np.asarray(ase_frame.info["target_atoms"]))
         if target_atoms.ndim != 1 or not np.issubdtype(
             target_atoms.dtype, np.integer
         ):
