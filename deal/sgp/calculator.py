@@ -55,6 +55,7 @@ class SGP_Calculator(Calculator):
             atoms.cell,
             coded_species,
             atoms.positions,
+            atoms.pbc.tolist(),
             self.gp_model.cutoff,
             self.gp_model.descriptor_calculators,
         )

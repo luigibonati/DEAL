@@ -36,6 +36,8 @@ public:
   ///@{
   Eigen::MatrixXd cell, cell_transpose, cell_transpose_inverse, cell_dot,
       cell_dot_inverse;
+  /** Periodicity along each cell vector. */
+  std::vector<bool> pbc;
   ///@}
 
   /** @name Atom coordinates */
@@ -100,12 +102,24 @@ public:
             const Eigen::MatrixXd &positions);
 
   Structure(const Eigen::MatrixXd &cell, const std::vector<int> &species,
+            const Eigen::MatrixXd &positions, const std::vector<bool> &pbc);
+
+  Structure(const Eigen::MatrixXd &cell, const std::vector<int> &species,
             const Eigen::MatrixXd &positions, double cutoff,
             std::vector<Descriptor *> descriptor_calculators);
 
   Structure(const Eigen::MatrixXd &cell, const std::vector<int> &species,
+            const Eigen::MatrixXd &positions, const std::vector<bool> &pbc,
+            double cutoff, std::vector<Descriptor *> descriptor_calculators);
+
+  Structure(const Eigen::MatrixXd &cell, const std::vector<int> &species,
             const Eigen::MatrixXd &positions, double cutoff,
             std::vector<Descriptor *> descriptor_calculators,
+            const std::vector<int> &center_indices);
+
+  Structure(const Eigen::MatrixXd &cell, const std::vector<int> &species,
+            const Eigen::MatrixXd &positions, const std::vector<bool> &pbc,
+            double cutoff, std::vector<Descriptor *> descriptor_calculators,
             const std::vector<int> &center_indices);
 
   Eigen::MatrixXd wrap_positions();
