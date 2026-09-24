@@ -2,18 +2,29 @@
 #include <algorithm>
 #include <fstream> // File operations
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 
 Structure ::Structure() {}
 
 Structure ::Structure(const Eigen::MatrixXd &cell,
                       const std::vector<int> &species,
-                      const Eigen::MatrixXd &positions) {
-  // Set cell, species, and positions.
+                      const Eigen::MatrixXd &positions)
+    : Structure(cell, species, positions, {true, true, true}) {}
+
+Structure ::Structure(const Eigen::MatrixXd &cell,
+                      const std::vector<int> &species,
+                      const Eigen::MatrixXd &positions,
+                      const std::vector<bool> &pbc) {
+  if (pbc.size() != 3) {
+    throw std::invalid_argument("PBC must contain exactly three flags.");
+  }
+
+  // Set cell, species, positions, and boundary conditions.
   this->cell = cell;
   this->species = species;
   this->positions = positions;
-  single_sweep_cutoff = get_single_sweep_cutoff();
+  this->pbc = pbc;
   volume = abs(cell.determinant());
   noa = species.size();
   center_indices.resize(noa);
@@ -21,13 +32,22 @@ Structure ::Structure(const Eigen::MatrixXd &cell,
     center_indices[i] = i;
   }
 
+  const bool fully_periodic = pbc[0] && pbc[1] && pbc[2];
   cell_transpose = cell.transpose();
-  cell_transpose_inverse = cell_transpose.inverse();
   cell_dot = cell * cell_transpose;
-  cell_dot_inverse = cell_dot.inverse();
-
-  // Store wrapped positions.
-  this->wrapped_positions = wrap_positions();
+  if (fully_periodic) {
+    single_sweep_cutoff = get_single_sweep_cutoff();
+    cell_transpose_inverse = cell_transpose.inverse();
+    cell_dot_inverse = cell_dot.inverse();
+    this->wrapped_positions = wrap_positions();
+  } else {
+    // An isolated ASE Atoms object has a zero (and therefore singular) cell.
+    // It needs neither coordinate wrapping nor cell inverses.
+    single_sweep_cutoff = 0;
+    cell_transpose_inverse = Eigen::MatrixXd::Zero(3, 3);
+    cell_dot_inverse = Eigen::MatrixXd::Zero(3, 3);
+    this->wrapped_positions = positions;
+  }
 }
 
 Structure ::Structure(const Eigen::MatrixXd &cell,
@@ -50,6 +70,39 @@ Structure ::Structure(const Eigen::MatrixXd &cell,
 
 Structure ::Structure(const Eigen::MatrixXd &cell,
                       const std::vector<int> &species,
+                      const Eigen::MatrixXd &positions,
+                      const std::vector<bool> &pbc, double cutoff,
+                      std::vector<Descriptor *> descriptor_calculators)
+    : Structure(cell, species, positions, pbc) {
+  this->cutoff = cutoff;
+  this->descriptor_calculators = descriptor_calculators;
+  if (pbc[0] || pbc[1] || pbc[2]) {
+    if (pbc[0] && pbc[1] && pbc[2]) {
+      sweep = ceil(cutoff / single_sweep_cutoff);
+    } else {
+      double shortest_periodic_vector = std::numeric_limits<double>::infinity();
+      for (int i = 0; i < 3; i++) {
+        if (pbc[i]) {
+          shortest_periodic_vector = std::min(shortest_periodic_vector, cell.row(i).norm());
+        }
+      }
+      if (shortest_periodic_vector == 0 || !std::isfinite(shortest_periodic_vector)) {
+        throw std::invalid_argument("Periodic directions require non-zero cell vectors.");
+      }
+      sweep = ceil(cutoff / shortest_periodic_vector);
+    }
+  } else {
+    sweep = 0;
+  }
+
+  neighbor_count = Eigen::VectorXi::Zero(noa);
+  cumulative_neighbor_count = Eigen::VectorXi::Zero(noa + 1);
+  compute_neighbors();
+  compute_descriptors();
+}
+
+Structure ::Structure(const Eigen::MatrixXd &cell,
+                      const std::vector<int> &species,
                       const Eigen::MatrixXd &positions, double cutoff,
                       std::vector<Descriptor *> descriptor_calculators,
                       const std::vector<int> &center_indices)
@@ -62,6 +115,20 @@ Structure ::Structure(const Eigen::MatrixXd &cell,
   neighbor_count = Eigen::VectorXi::Zero(noa);
   cumulative_neighbor_count = Eigen::VectorXi::Zero(noa + 1);
 
+  compute_neighbors();
+  compute_descriptors();
+}
+
+Structure ::Structure(const Eigen::MatrixXd &cell,
+                      const std::vector<int> &species,
+                      const Eigen::MatrixXd &positions,
+                      const std::vector<bool> &pbc, double cutoff,
+                      std::vector<Descriptor *> descriptor_calculators,
+                      const std::vector<int> &center_indices)
+    : Structure(cell, species, positions, pbc, cutoff, descriptor_calculators) {
+  set_center_indices(center_indices);
+  neighbor_count = Eigen::VectorXi::Zero(noa);
+  cumulative_neighbor_count = Eigen::VectorXi::Zero(noa + 1);
   compute_neighbors();
   compute_descriptors();
 }
@@ -90,7 +157,9 @@ void Structure ::compute_neighbors() {
   // Count the neighbors of each atom and compute the relative positions
   // of all candidate neighbors.
   int sweep_unit = 2 * sweep + 1;
-  int sweep_no = sweep_unit * sweep_unit * sweep_unit;
+  int sweep_no = (pbc[0] ? sweep_unit : 1) *
+                 (pbc[1] ? sweep_unit : 1) *
+                 (pbc[2] ? sweep_unit : 1);
   int n_centers = center_indices.size();
   Eigen::MatrixXd all_positions =
     Eigen::MatrixXd::Zero(n_centers * noa * sweep_no, 4);
@@ -106,9 +175,9 @@ void Structure ::compute_neighbors() {
     int counter = 0;
     for (int j = 0; j < noa; j++) {
       Eigen::MatrixXd diff_curr = wrapped_positions.row(j) - pos_atom;
-      for (int s1 = -sweep; s1 < sweep + 1; s1++) {
-        for (int s2 = -sweep; s2 < sweep + 1; s2++) {
-          for (int s3 = -sweep; s3 < sweep + 1; s3++) {
+      for (int s1 = pbc[0] ? -sweep : 0; s1 < (pbc[0] ? sweep + 1 : 1); s1++) {
+        for (int s2 = pbc[1] ? -sweep : 0; s2 < (pbc[1] ? sweep + 1 : 1); s2++) {
+          for (int s3 = pbc[2] ? -sweep : 0; s3 < (pbc[2] ? sweep + 1 : 1); s3++) {
             Eigen::MatrixXd im = diff_curr + s1 * cell.row(0) +
                                  s2 * cell.row(1) + s3 * cell.row(2);
             double dist = sqrt(im(0) * im(0) + im(1) * im(1) + im(2) * im(2));
@@ -159,6 +228,10 @@ void Structure ::compute_neighbors() {
 }
 
 Eigen::MatrixXd Structure ::wrap_positions() {
+  if (!(pbc[0] && pbc[1] && pbc[2])) {
+    return positions;
+  }
+
   // Convert Cartesian coordinates to relative coordinates.
   Eigen::MatrixXd relative_positions =
       (positions * this->cell_transpose) * this->cell_dot_inverse;

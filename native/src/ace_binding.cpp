@@ -54,13 +54,22 @@ PYBIND11_MODULE(_C_deal_sgp, m) {
       .def(py::init<const Eigen::MatrixXd &, const std::vector<int> &,
                     const Eigen::MatrixXd &>())
       .def(py::init<const Eigen::MatrixXd &, const std::vector<int> &,
+                    const Eigen::MatrixXd &, const std::vector<bool> &>())
+      .def(py::init<const Eigen::MatrixXd &, const std::vector<int> &,
                     const Eigen::MatrixXd &, double,
+                    std::vector<Descriptor *>>())
+      .def(py::init<const Eigen::MatrixXd &, const std::vector<int> &,
+                    const Eigen::MatrixXd &, const std::vector<bool> &, double,
                     std::vector<Descriptor *>>())
       .def(py::init<const Eigen::MatrixXd &, const std::vector<int> &,
                     const Eigen::MatrixXd &, double,
                     std::vector<Descriptor *>, const std::vector<int> &>())
+      .def(py::init<const Eigen::MatrixXd &, const std::vector<int> &,
+                    const Eigen::MatrixXd &, const std::vector<bool> &, double,
+                    std::vector<Descriptor *>, const std::vector<int> &>())
       .def_readwrite("noa", &Structure::noa)
       .def_readwrite("cell", &Structure::cell)
+      .def_readwrite("pbc", &Structure::pbc)
       .def_readwrite("species", &Structure::species)
       .def_readwrite("center_indices", &Structure::center_indices)
       .def_readwrite("positions", &Structure::positions)
