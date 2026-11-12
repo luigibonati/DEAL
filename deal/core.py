@@ -100,10 +100,11 @@ class DEAL:
             self.sgp_cfg = sgp_cfg
 
         if data_changed and not sgp_changed and self.sgp_cfg.species is not None:
-            data_species = self._get_species()
-            if data_species != sorted(self.sgp_cfg.species):
+            missing = set(self._get_species()) - set(self.sgp_cfg.species)
+            if missing:
                 raise ValueError(
-                    "Input species changed but the SGP model was not rebuilt. "
+                    f"Input contains species {sorted(missing)} not covered by the SGP model "
+                    f"(species={sorted(self.sgp_cfg.species)}). "
                     "Pass sgp_cfg to configure_run to rebuild SGP."
                 )
 
@@ -146,11 +147,15 @@ class DEAL:
     def _get_species(self):
         """
         Detect species automatically using the DataConfig instance.
-        Reads only the first available frame.
+        Scans all frames, since frames may have different compositions.
         """
-        for atoms in self.data_cfg.images or []:
-            return sorted(set(atoms.get_atomic_numbers().tolist()))
-        raise ValueError("Could not detect species: no input frames available.")
+        images = self.data_cfg.images or []
+        if not images:
+            raise ValueError("Could not detect species: no input frames available.")
+        species = set()
+        for atoms in images:
+            species.update(np.unique(atoms.numbers).tolist())
+        return sorted(species)
 
     def _extract_dft(self, ase_atoms):
         """
