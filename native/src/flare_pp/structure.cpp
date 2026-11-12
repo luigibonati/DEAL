@@ -76,24 +76,7 @@ Structure ::Structure(const Eigen::MatrixXd &cell,
     : Structure(cell, species, positions, pbc) {
   this->cutoff = cutoff;
   this->descriptor_calculators = descriptor_calculators;
-  if (pbc[0] || pbc[1] || pbc[2]) {
-    if (pbc[0] && pbc[1] && pbc[2]) {
-      sweep = ceil(cutoff / single_sweep_cutoff);
-    } else {
-      double shortest_periodic_vector = std::numeric_limits<double>::infinity();
-      for (int i = 0; i < 3; i++) {
-        if (pbc[i]) {
-          shortest_periodic_vector = std::min(shortest_periodic_vector, cell.row(i).norm());
-        }
-      }
-      if (shortest_periodic_vector == 0 || !std::isfinite(shortest_periodic_vector)) {
-        throw std::invalid_argument("Periodic directions require non-zero cell vectors.");
-      }
-      sweep = ceil(cutoff / shortest_periodic_vector);
-    }
-  } else {
-    sweep = 0;
-  }
+  set_sweep();
 
   neighbor_count = Eigen::VectorXi::Zero(noa);
   cumulative_neighbor_count = Eigen::VectorXi::Zero(noa + 1);
@@ -125,12 +108,39 @@ Structure ::Structure(const Eigen::MatrixXd &cell,
                       const std::vector<bool> &pbc, double cutoff,
                       std::vector<Descriptor *> descriptor_calculators,
                       const std::vector<int> &center_indices)
-    : Structure(cell, species, positions, pbc, cutoff, descriptor_calculators) {
+    : Structure(cell, species, positions, pbc) {
+  // Do not delegate to the constructor above: it would build neighbors and
+  // descriptors for every atom before restricting to the requested centers.
+  this->cutoff = cutoff;
+  this->descriptor_calculators = descriptor_calculators;
   set_center_indices(center_indices);
+  set_sweep();
+
   neighbor_count = Eigen::VectorXi::Zero(noa);
   cumulative_neighbor_count = Eigen::VectorXi::Zero(noa + 1);
   compute_neighbors();
   compute_descriptors();
+}
+
+void Structure ::set_sweep() {
+  if (pbc[0] || pbc[1] || pbc[2]) {
+    if (pbc[0] && pbc[1] && pbc[2]) {
+      sweep = ceil(cutoff / single_sweep_cutoff);
+    } else {
+      double shortest_periodic_vector = std::numeric_limits<double>::infinity();
+      for (int i = 0; i < 3; i++) {
+        if (pbc[i]) {
+          shortest_periodic_vector = std::min(shortest_periodic_vector, cell.row(i).norm());
+        }
+      }
+      if (shortest_periodic_vector == 0 || !std::isfinite(shortest_periodic_vector)) {
+        throw std::invalid_argument("Periodic directions require non-zero cell vectors.");
+      }
+      sweep = ceil(cutoff / shortest_periodic_vector);
+    }
+  } else {
+    sweep = 0;
+  }
 }
 
 void Structure ::set_center_indices(const std::vector<int> &indices) {

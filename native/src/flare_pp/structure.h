@@ -127,6 +127,7 @@ public:
   void compute_neighbors();
   void compute_descriptors();
   void set_center_indices(const std::vector<int> &center_indices);
+  void set_sweep();
 
   NLOHMANN_DEFINE_TYPE_INTRUSIVE(Structure, neighbor_count,
     cutoff, cumulative_neighbor_count, structure_indices, neighbor_species,
