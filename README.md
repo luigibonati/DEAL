@@ -393,6 +393,22 @@ finished and `deal --restart` only reports it. `wall_time` alone (without
 `save_full_trajectory: "final"`, leave enough time for the final pass over all
 frames: it is not checkpointed.
 
+### Evaluate a trajectory with a saved GP
+
+`deal-evaluate` reads a GP written by `save_gp`/`restart` and writes, for every
+frame, the same per-atom `atomic_uncertainty` and frame `max_atomic_uncertainty`
+as `save_full_trajectory`. The model is fixed, so on-the-fly and final
+evaluation coincide:
+
+```bash
+deal-evaluate -m deal_sgp.json -f new_traj.xyz -o new_traj_uncertainty.xyz
+deal-evaluate -m deal_sgp.json -c input.yaml -t 0.3   # data, preprocessing and mask from the DEAL input
+```
+
+By default `deal_mask` is used when the frames contain it (`--mask false` to
+use all atoms), and the output is `<input>_uncertainty.xyz`. `-t` also reports
+how many frames exceed that uncertainty.
+
 A saved GP can also be loaded in Python:
 
 ```python

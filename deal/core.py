@@ -16,6 +16,8 @@ from ase.calculators.singlepoint import SinglePointCalculator
 from .config import DataConfig, DEALConfig, SGPConfig
 from .model import DealActiveLearningModel
 from .restart import restart_filename, truncate_xyz, write_restart
+
+_RUN_THRESHOLD = object()  # write_full_trajectory default: the run threshold
 from .runtime import format_runtime_info
 
 
@@ -311,19 +313,29 @@ class DEAL:
         )
         self.full_trajectory_count += 1
 
-    def write_full_trajectory(self, images: Optional[Sequence[Atoms]] = None) -> None:
+    def write_full_trajectory(
+        self,
+        images: Optional[Sequence[Atoms]] = None,
+        filename: Optional[str] = None,
+        threshold=_RUN_THRESHOLD,
+        description: Optional[str] = None,
+    ) -> None:
         """
         Write all frames with atomic uncertainties predicted by the current GP.
 
         Called once the selection is finished, so every frame is scored by
-        the same (final) model.
+        the same (final) model; deal-evaluate uses it with a loaded model.
+        threshold (default: the run threshold; None to skip) is only used
+        for the printed summary.
         """
         images = list(self.data_cfg.images if images is None else images or [])
-        filename = f"{self.deal_cfg.output_prefix}_trajectory_uncertainty.xyz"
-        print(
-            f"\n[DEAL] Re-evaluating {len(images)} frames with the final GP "
-            f"({self.dft_count} selected frames)."
-        )
+        if filename is None:
+            filename = f"{self.deal_cfg.output_prefix}_trajectory_uncertainty.xyz"
+        if threshold is _RUN_THRESHOLD:
+            threshold = self.deal_cfg.threshold
+        if description is None:
+            description = f"the final GP ({self.dft_count} selected frames)"
+        print(f"\n[DEAL] Re-evaluating {len(images)} frames with {description}.")
         t_start = time.perf_counter()
         max_uncertainties = []
         for step, atoms in enumerate(images):
@@ -361,17 +373,18 @@ class DEAL:
 
         max_uncertainties = np.asarray(max_uncertainties, dtype=float)
         valid = max_uncertainties[np.isfinite(max_uncertainties) & (max_uncertainties >= 0)]
-        print(f"[OUTPUT] Saved full trajectory with final-GP atomic uncertainty to: {filename}")
+        print(f"[OUTPUT] Saved full trajectory with atomic uncertainty to: {filename}")
         if len(valid):
-            n_above = int(np.count_nonzero(valid > self.deal_cfg.threshold))
             print(
                 f"         max_atomic_uncertainty per frame: min {valid.min():.4g} | "
                 f"mean {valid.mean():.4g} | max {valid.max():.4g}"
             )
-            print(
-                f"         frames above final threshold ({self.deal_cfg.threshold:.4g}): "
-                f"{n_above}/{len(valid)}"
-            )
+            if threshold is not None:
+                n_above = int(np.count_nonzero(valid > threshold))
+                print(
+                    f"         frames above threshold ({threshold:.4g}): "
+                    f"{n_above}/{len(valid)}"
+                )
 
     # ------------------------------------------------------------------
     # main loop
@@ -791,13 +804,24 @@ class DEAL:
         print(f"[OUTPUT] Saved restart checkpoint to: {filename}")
         return filename
 
-    def restore(self, state: dict) -> None:
-        """Load the GP and counters of a restart file and trim the outputs to it."""
-        run = state["run"]
-        self.model = DealActiveLearningModel.from_file(run["sgp_file"])
+    def load_model(self, filename: str) -> None:
+        """Replace the GP with one saved by save_gp/restart (<prefix>_sgp.json)."""
+        model = DealActiveLearningModel.from_file(filename)
+        missing = set(self._get_species()) - set(model.gp.species_map)
+        if missing:
+            raise ValueError(
+                f"Input contains species {sorted(missing)} not covered by the "
+                f"GP in {filename} (species={sorted(model.gp.species_map)})."
+            )
+        self.model = model
         self.sgp_calc = self.model.calculator
         self.kernels = self.model.kernels
         self.gp = self.model.gp
+
+    def restore(self, state: dict) -> None:
+        """Load the GP and counters of a restart file and trim the outputs to it."""
+        run = state["run"]
+        self.load_model(run["sgp_file"])
         self.labeled = run["labeled"]
         self.dft_count = run["dft_count"]
         self.full_trajectory_count = run["full_trajectory_count"]
