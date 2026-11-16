@@ -118,6 +118,8 @@ class DEAL:
             self.selected_frames = []
             self.dft_count = 0
             self.full_trajectory_count = 0
+            # Decided once per model, so iterations never mix update paths.
+            self.labeled = self._has_force_labels()
 
         self.last_dft_step = -(10**9)
 
@@ -126,11 +128,22 @@ class DEAL:
     # ------------------------------------------------------------------
 
     def _use_local_uncertainty_fast_path(self) -> bool:
+        # A full GP (labels, posterior mean) is only built when it is needed
+        # and possible: save_gp on labeled data gives a model that predicts
+        # forces; on unlabeled data the saved model gives uncertainties only.
         return (
             self.sgp_cfg.variance_type == "local"
             and not self.deal_cfg.train_hyps
-            and not self.deal_cfg.save_gp
+            and not (self.deal_cfg.save_gp and self.labeled)
         )
+
+    def _has_force_labels(self) -> bool:
+        """Return True if every input frame carries force labels."""
+        for atoms in self.data_cfg.images or []:
+            results = getattr(atoms.calc, "results", {}) or {}
+            if "forces" not in results:
+                return False
+        return True
 
     @staticmethod
     def _copy_atoms_with_results(atoms: Atoms) -> Atoms:

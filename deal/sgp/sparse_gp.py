@@ -52,6 +52,9 @@ class SGP_Wrapper:
         self.bounds = bounds
         self.atom_indices = []
         self.rel_efs_noise = []
+        # Structures added with update_local_environments (no labels), kept
+        # so that as_dict/from_dict can rebuild an uncertainty-only GP.
+        self.local_environments = []
 
         # Make placeholder hyperparameter labels.
         self.hyp_labels = []
@@ -279,6 +282,7 @@ class SGP_Wrapper:
 
         # update db
         training_data = in_dict["training_structures"]
+        local_environments = in_dict.get("local_environments", [])
         for s in range(len(training_data)):
             custom_range = in_dict["sparse_indice"][0][s]
             train_struc = SGPAtoms.from_dict(training_data[s])
@@ -310,7 +314,17 @@ class SGP_Wrapper:
                 rel_s_noise=rel_s_noise,
             )
 
-        gp.sparse_gp.update_matrices_QR()
+        if len(training_data) > 0:
+            gp.sparse_gp.update_matrices_QR()
+
+        for env in local_environments:
+            structure = Atoms(
+                numbers=env["numbers"],
+                positions=env["positions"],
+                cell=env["cell"],
+                pbc=env["pbc"],
+            )
+            gp.update_local_environments(structure, env["atoms"])
         return gp, kernels
 
     @staticmethod
@@ -440,6 +454,17 @@ class SGP_Wrapper:
             structure_descriptor, list(custom_range)
         )
         self.sparse_gp.update_matrices_local()
+
+        inv_species_map = {v: k for k, v in self.species_map.items()}
+        self.local_environments.append(
+            {
+                "numbers": [int(inv_species_map[spec]) for spec in coded_species],
+                "positions": np.asarray(structure.positions, dtype=float),
+                "cell": np.asarray(structure.cell, dtype=float),
+                "pbc": np.broadcast_to(np.asarray(structure.pbc, dtype=bool), 3).tolist(),
+                "atoms": [int(idx) for idx in custom_range],
+            }
+        )
 
     def set_L_alpha(self):
         # Taken care of in the update_db method.

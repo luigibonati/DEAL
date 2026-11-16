@@ -35,7 +35,9 @@ class DealActiveLearningModel:
         model.config = None
         model.calculator, model.kernels = SGP_Calculator.from_file(filename)
         model.gp = model.calculator.gp_model
-        model._update_count = len(model.gp.training_data)
+        model._update_count = len(model.gp.training_data) + len(
+            model.gp.local_environments
+        )
         return model
 
     @property
@@ -168,8 +170,8 @@ class DealActiveLearningModel:
             # The full SGP update needs force labels (it crashes without them).
             raise ValueError(
                 "Frame has no force labels, but a full GP update was requested "
-                "(save_gp, train_hyps or a non-local variance_type). "
-                "Use save_gp: false and train_hyps: false for unlabeled data."
+                "(train_hyps or a non-local variance_type). "
+                "Use train_hyps: false for unlabeled data."
             )
 
         sgp_stress = self._to_sgp_stress(dft_stress)
