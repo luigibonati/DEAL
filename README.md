@@ -208,10 +208,11 @@ sgp:
 When `variance_type: local` and `train_hyps: false`, DEAL automatically uses a
 local-uncertainty fast path. Local uncertainty depends only on the
 sparse-environment covariance matrix, so training labels, `Kuf`, posterior
-mean, and QR updates are skipped. With `save_gp: true` on labeled data (forces
-in every frame) DEAL builds the complete GP instead, so the saved model also
-predicts energies and forces. On unlabeled data the saved model is
-uncertainty-only. `train_hyps: true` always needs force labels.
+mean, and QR updates are skipped, also on labeled data. The model saved by
+`save_gp` or `restart` is then uncertainty-only, which is all that selection,
+restart and `deal-evaluate` need. The complete GP (with labels and posterior
+mean) is built only with `train_hyps: true` or a non-local `variance_type`,
+which need force labels.
 
 If you want to restrict DEAL to atoms selected by an external uncertainty
 estimate, prepare the trajectory first with `deal-mask`:
@@ -372,7 +373,7 @@ deal:
 DEAL then writes two files, after every iteration and when the wall time is
 about to be reached:
 
-- `deal_sgp.json`: the GP model (labeled data: full GP; unlabeled: uncertainty-only)
+- `deal_sgp.json`: the GP model (uncertainty-only on the local-uncertainty fast path)
 - `deal.restart`: everything needed for an exact restart (configuration,
   iteration and frame reached, frame order, already selected frames, random
   number generator state, output counters)

@@ -11,49 +11,53 @@ from deal.model import DealActiveLearningModel
 def main():
     frames = read("../data/traj.xyz", index=":5")
 
+    unlabeled = [atoms.copy() for atoms in frames]
+
     with tempfile.TemporaryDirectory() as tmp:
-        prefix = os.path.join(tmp, "deal")
+        # Labeled or not, the saved GP is uncertainty-only (fast path) and
+        # must reload and reproduce the final-GP uncertainties.
+        for name, images in [("labeled", frames), ("unlabeled", unlabeled)]:
+            prefix = os.path.join(tmp, name)
+            deal = DEAL(
+                DataConfig(images=images),
+                DEALConfig(
+                    threshold=0.3,
+                    mask=False,
+                    output_prefix=prefix,
+                    save_gp=True,
+                    save_full_trajectory="final",
+                ),
+                SGPConfig(cutoff=4.5),
+            )
+            assert deal._use_local_uncertainty_fast_path()
+            deal.run()
+            model = DealActiveLearningModel.from_file(f"{prefix}_sgp.json")
+            assert len(model.gp.local_environments) > 0
+            for frame in read(f"{prefix}_trajectory_uncertainty.xyz", index=":"):
+                uncertainty = model.predict_uncertainty(model.to_model_atoms(frame))
+                np.testing.assert_allclose(
+                    uncertainty, frame.arrays["atomic_uncertainty"], atol=1e-6
+                )
+
+        # train_hyps builds the full GP (labels, posterior mean): it must
+        # also reload and reproduce the final-GP uncertainties.
+        prefix = os.path.join(tmp, "labeled_hyps")
         deal = DEAL(
             DataConfig(images=frames),
             DEALConfig(
                 threshold=0.3,
                 mask=False,
                 output_prefix=prefix,
+                train_hyps=True,
                 save_gp=True,
                 save_full_trajectory="final",
             ),
             SGPConfig(cutoff=4.5),
         )
+        assert not deal._use_local_uncertainty_fast_path()
         deal.run()
-
-        # The saved GP must reload and reproduce the final-GP uncertainties.
         model = DealActiveLearningModel.from_file(f"{prefix}_sgp.json")
         assert model.training_size > 0
-        for frame in read(f"{prefix}_trajectory_uncertainty.xyz", index=":"):
-            uncertainty = model.predict_uncertainty(model.to_model_atoms(frame))
-            np.testing.assert_allclose(
-                uncertainty, frame.arrays["atomic_uncertainty"], atol=1e-6
-            )
-
-        # Unlabeled frames: the saved GP is uncertainty-only (fast path) and
-        # must also reload and reproduce the final-GP uncertainties.
-        unlabeled = [atoms.copy() for atoms in frames]
-        prefix = os.path.join(tmp, "unlabeled")
-        deal = DEAL(
-            DataConfig(images=unlabeled),
-            DEALConfig(
-                threshold=0.3,
-                mask=False,
-                output_prefix=prefix,
-                save_gp=True,
-                save_full_trajectory="final",
-            ),
-            SGPConfig(cutoff=4.5),
-        )
-        assert deal._use_local_uncertainty_fast_path()
-        deal.run()
-        model = DealActiveLearningModel.from_file(f"{prefix}_sgp.json")
-        assert len(model.gp.local_environments) > 0
         for frame in read(f"{prefix}_trajectory_uncertainty.xyz", index=":"):
             uncertainty = model.predict_uncertainty(model.to_model_atoms(frame))
             np.testing.assert_allclose(
