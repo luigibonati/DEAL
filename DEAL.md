@@ -8,6 +8,7 @@ DEAL (Data-Efficient Active Learning) [1] is a trajectory subsampling strategy f
 
 A standard active-learning cycle for machine learning potentials is:
 1. Run MD simulations (possibly with enhanced-sampling) with the current ML potential.
+2. Identify candidate configurations where the potential is uncertain.
 3. Select configurations for DFT labeling.
 4. Retrain/update the potential.
 5. Repeat.
@@ -71,10 +72,10 @@ So the model compares each current environment against reference environments in
 The key feature of a GP is that it provides predictions of both the value and its associated uncertainty. For a query local environment $\rho$, the GP predictive variance associated with the atomic energy contribution has the form:
 
 $$
-\mathrm{Var}[\varepsilon(\rho)] =\frac{k(\rho,\rho)-\mathbf{k}^\top\mathbf{K}^{-1}\mathbf{k}}{ \sigma^2}
+\mathrm{Var}[\varepsilon(\rho)] = k(\rho,\rho)-\mathbf{k}^\top\mathbf{K}^{-1}\mathbf{k}
 $$
 
-which depends on the matrix of kernel similarities between the environment and the reference set $\mathbf{k}$ (each element is $k(\rho,\rho_m)$ ), as well as the one between the reference structures themselves ($\mathbf{K}$). In other words, the predicted uncertainty is based only on structural novelty measured in local-environment space, not on the (DFT) energies. DEAL reports the variance normalized by the signal hyperparameter $\sigma$, yielding a unitless value.
+which depends on the matrix of kernel similarities between the environment and the reference set $\mathbf{k}$ (each element is $k(\rho,\rho_m)$ ), as well as the one between the reference structures themselves ($\mathbf{K}$). In other words, the predicted uncertainty is based only on structural novelty measured in local-environment space, not on the (DFT) energies. DEAL reports the standard deviation normalized by the signal hyperparameter, $\sqrt{\mathrm{Var}[\varepsilon(\rho)]}/\sigma$, a unitless value between 0 and 1.
 
 ## 3) How DEAL selection works
 
@@ -97,8 +98,9 @@ Relevant `deal` config parameters:
 - The uncertainty values are unitless and range between 0 and 1. Lower threshold means more selected structures; higher threshold, fewer selections.
 - A good starting point is around 0.1. As a rule of thumb, homogeneous, condensed and/or crystalline systems tend to have fewer different local environments and require smaller thresholds (<<0.1), whereas heterogeneous systems may require larger ones (>0.1). This is also connected with the number of species (more species -> higher threshold required).
 - Try a few values and compare how many structures are selected; distributions often are very similar across thresholds, what changes is the number of structures. One can decide based on the computational budget (for DFT calculations).
-- The recommended strategy is **incremental selection**: start with a high threshold, then decrease it progressively until a target number of structures is reached. This is easily achieved with the CLI by setting `max_selected` (or `--max-selected`; see the [minimal examples](examples/README.md) and [Tutorial 4](tutorials/4_incremental_selection/README.md)).
-- Use chemiscope to inspect selected structures and identify which environments triggered selection (see [Tutorial 2](tutorials/2_subsampling_formate/README.md)).
+- The recommended strategy is **incremental selection**: start with a high threshold, then decrease it progressively until a target number of structures is reached. This is easily achieved with the CLI by setting `max_selected` (or `--max-selected`; see the [minimal examples](examples/README.md) and [Tutorial 4](examples/old/4_incremental_selection/README.md)).
+- For long selections on a cluster, set `restart: true` and `wall_time`, so the run can be resumed exactly with `deal --restart deal.restart` (see [Restart and wall time](README.md#restart-and-wall-time)). The saved GP (`deal_sgp.json`) can then score new trajectories with `deal-evaluate`.
+- Use chemiscope to inspect selected structures and identify which environments triggered selection (see [Tutorial 2](examples/old/2_subsampling_formate/README.md)).
 
 Note: the training time scales unfavorably with the number of samples. For a large dataset, it is advised to divide it into chunks, run DEAL separately on each chunk, and then perform a second DEAL selection on the output structures.
 

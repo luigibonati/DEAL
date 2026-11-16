@@ -1,10 +1,15 @@
 import argparse
+from copy import deepcopy
+import os
 import sys
+import time
+from typing import Optional
 import yaml
 import numpy as np
 
 from .config import DataConfig, DEALConfig, SGPConfig
 from .core import DEAL
+from .restart import read_restart
 from .preprocessing import TrajectoryMasker, write_preprocessed_trajectory
 
 
@@ -67,6 +72,20 @@ def parse_args():
     parser.add_argument(
         "--preprocess-plot",
         help="Write the preprocessing plot: true, false, or an output filename.",
+    )
+    parser.add_argument(
+        "--restart",
+        dest="restart",
+        help=(
+            "Resume from a <prefix>.restart file. The configuration stored in "
+            "the file is used; -c and other options are ignored."
+        ),
+    )
+    parser.add_argument(
+        "--wall-time",
+        type=float,
+        dest="wall_time",
+        help="Stop cleanly and write a restart checkpoint before this many seconds.",
     )
 
     return parser.parse_args()
@@ -147,7 +166,14 @@ def _apply_preprocessing(data_cfg: DataConfig, config: dict) -> None:
         print(f"[DEAL preprocessing] trajectory={output} ({status})")
 
 
-def _run_incremental_cli(data_cfg: DataConfig, deal_dict: dict, sgp_cfg: SGPConfig) -> None:
+def _run_incremental_cli(
+    data_cfg: DataConfig,
+    deal_dict: dict,
+    sgp_cfg: SGPConfig,
+    config: Optional[dict] = None,
+    resume: Optional[dict] = None,
+    wall_start: Optional[float] = None,
+) -> None:
     max_selected = deal_dict.get("max_selected")
     max_iterations = deal_dict.get("max_iterations", 10)
     threshold_factor = deal_dict.get("threshold_factor", 0.7)
@@ -158,19 +184,57 @@ def _run_incremental_cli(data_cfg: DataConfig, deal_dict: dict, sgp_cfg: SGPConf
     if max_selected is None:
         raise ValueError("Incremental mode requires 'max_selected' to be set.")
 
+    base_cfg = DEALConfig(**deal_dict)
+    save_final_trajectory = base_cfg.save_full_trajectory == "final"
     all_images = list(data_cfg.images or [])
     selected_frames = set()
     deal = None
+    start_iteration = 0
+    resume_run = None  # set when resuming in the middle of an iteration
+    selection_done = False
 
-    for iteration in range(max_iterations):
-        remaining_images = [
-            atoms
-            for atoms in all_images
-            if atoms.info.get("original_frame") not in selected_frames
-        ]
+    if resume is not None:
+        incremental = resume["incremental"]
+        selected_frames = set(incremental["selected_frames"])
+        rng.bit_generator.state = incremental["rng_state"]
+        selection_done = resume.get("selection_done", False)
+        if resume["run"]["completed"]:
+            start_iteration = incremental["iteration"] + 1
+        else:
+            start_iteration = incremental["iteration"]
+            resume_run = resume["run"]
 
-        if iteration != 0:
-            rng.shuffle(remaining_images) # shuffle remaining frames to avoid bias from frame ordering during incremental selection
+    by_original_frame = {atoms.info["original_frame"]: atoms for atoms in all_images}
+
+    def restart_context(iteration):
+        return {
+            "mode": "incremental",
+            "config": config,
+            "n_input_frames": len(all_images),
+            "selection_done": selection_done,
+            "incremental": {
+                "iteration": iteration,
+                "selected_frames": sorted(int(i) for i in selected_frames),
+                "rng_state": rng.bit_generator.state,
+            },
+        }
+
+    iteration = max(start_iteration - 1, 0)
+    for iteration in range(start_iteration, max_iterations):
+        if selection_done:
+            break
+        if resume_run is not None:
+            # same frame order as the interrupted iteration (already shuffled)
+            remaining_images = [by_original_frame[i] for i in resume_run["frame_order"]]
+        else:
+            remaining_images = [
+                atoms
+                for atoms in all_images
+                if atoms.info.get("original_frame") not in selected_frames
+            ]
+
+            if iteration != 0:
+                rng.shuffle(remaining_images) # shuffle remaining frames to avoid bias from frame ordering during incremental selection
             
         if len(remaining_images) == 0:
             print("\n[DEAL] Stopping incremental mode: all input frames were selected.")
@@ -185,18 +249,27 @@ def _run_incremental_cli(data_cfg: DataConfig, deal_dict: dict, sgp_cfg: SGPConf
         # Each iteration only sees the remaining frames: with
         # save_full_trajectory="final" the trajectory is written once at the
         # end with the final GP (true keeps appending on-the-fly frames instead).
-        save_final_trajectory = deal_cfg.save_full_trajectory == "final"
-        if save_final_trajectory:
+        if deal_cfg.save_full_trajectory == "final":
             deal_cfg.save_full_trajectory = False
         data_iter_cfg = DataConfig(images=remaining_images, seed=data_cfg.seed)
 
-        if iteration == 0:
+        if deal is None:
             deal = DEAL(data_iter_cfg, deal_cfg, sgp_cfg)
+            if wall_start is not None:
+                deal.wall_start = wall_start
+            if resume is not None:
+                deal.restore(resume)
         else:
             deal.configure_run(data_cfg=data_iter_cfg, deal_cfg=deal_cfg)
 
+        deal.restart_context = restart_context(iteration)
+        start_step = resume_run["step"] if resume_run is not None else 0
+        resume_run = None
+
         previous_selected = len(selected_frames)
-        deal.run()
+        if not deal.run(start_step=start_step):
+            print(f"[DEAL] Resume with: deal --restart {deal.deal_cfg.output_prefix}.restart")
+            return
 
         selected_frames.update(
             frame.info["original_frame"]
@@ -212,16 +285,38 @@ def _run_incremental_cli(data_cfg: DataConfig, deal_dict: dict, sgp_cfg: SGPConf
             print(
                 f"\n[DEAL] Stopping incremental mode: max_selected is reached."
             )
+            selection_done = True
+        if base_cfg.restart:
+            deal.restart_context = restart_context(iteration)
+            deal.write_checkpoint(next_step=len(remaining_images), completed=True)
+        if selection_done:
             break
     else:
-        print(
-            f"\n[WARNING] Reached max_iterations={max_iterations} before "
-            f"reaching max_selected={max_selected}. "
-            f"Current selected: {len(selected_frames)}."
-        )
+        if not selection_done:
+            print(
+                f"\n[WARNING] Reached max_iterations={max_iterations} before "
+                f"reaching max_selected={max_selected}. "
+                f"Current selected: {len(selected_frames)}."
+            )
 
-    if deal is not None and save_final_trajectory:
+    if deal is None and resume is not None:
+        # resumed after the selection was over: only the outputs are left
+        deal = DEAL(DataConfig(images=all_images, seed=data_cfg.seed), base_cfg, sgp_cfg)
+        deal.restore(resume)
+    if deal is None:
+        return
+
+    if save_final_trajectory:
+        if base_cfg.restart:
+            # the selection is over: a restart only redoes the final pass
+            selection_done = True
+            deal.restart_context = restart_context(iteration)
+            deal.write_checkpoint(next_step=0, completed=True)
         deal.write_full_trajectory(all_images)
+
+    if base_cfg.restart:
+        deal.restart_context = restart_context(iteration)
+        deal.write_checkpoint(next_step=0, completed=True, finished=True)
 
 
 def main() -> None:
@@ -235,11 +330,22 @@ def main() -> None:
 8888888P   88888888P 88     88  888888888
 """)
 
+    wall_start = time.perf_counter()
     args = parse_args()
     cfg_dict = {}
+    resume = None
 
+    if args.restart is not None:
+        resume = read_restart(args.restart)
+        if resume.get("finished", False):
+            print(f"[DEAL] {args.restart}: the selection is already finished.")
+            return
+        cfg_dict = resume["config"]
+        if args.wall_time is not None:
+            cfg_dict["deal"]["wall_time"] = args.wall_time
+        print(f"[DEAL] Resuming from {args.restart}.")
     # Start from YAML config if provided
-    if args.config is not None:
+    elif args.config is not None:
         with open(args.config, "r") as f:
             cfg_dict = yaml.safe_load(f) or {}
 
@@ -272,6 +378,8 @@ def main() -> None:
         cfg_dict["preprocessing"]["plot"] = _parse_bool_or_filename(
             args.preprocess_plot
         )
+    if args.wall_time is not None:
+        cfg_dict["deal"]["wall_time"] = args.wall_time
 
     # A preprocessing mask should be consumed automatically unless the user
     # explicitly selected or disabled a DEAL mask. ``null`` means automatic.
@@ -285,6 +393,13 @@ def main() -> None:
             "[ERROR] No input trajectory specified. Please provide a trajectory file (-f/--file) or a YAML config file (-c/--config)."
         )
         sys.exit(1)
+
+    # Configuration stored in restart files, with absolute input paths so
+    # that a resumed job does not depend on its working directory.
+    config = deepcopy(cfg_dict)
+    files = config["data"]["files"]
+    files = [files] if isinstance(files, str) else files
+    config["data"]["files"] = [os.path.abspath(f) for f in files]
 
     # Build data/SGP configs
     data_cfg = DataConfig(**cfg_dict["data"])
@@ -302,14 +417,27 @@ def main() -> None:
         )
         sys.exit(1)
 
+    if resume is not None and resume["n_input_frames"] != len(data_cfg.images):
+        print(
+            f"[ERROR] The input now has {len(data_cfg.images)} frames, but the "
+            f"restart file was written for {resume['n_input_frames']}."
+        )
+        sys.exit(1)
+
     if has_max_selected:
-        _run_incremental_cli(data_cfg, deal_dict, sgp_cfg)
+        _run_incremental_cli(
+            data_cfg, deal_dict, sgp_cfg,
+            config=config, resume=resume, wall_start=wall_start,
+        )
         return
 
     # Standard mode: handle one threshold or a list of independent thresholds
     thresholds = deal_dict.get("threshold", None)
 
     if isinstance(thresholds, list):
+        if deal_dict.get("restart") or deal_dict.get("wall_time") is not None:
+            print("[ERROR] 'restart' and 'wall_time' need a single threshold.")
+            sys.exit(1)
         for th in thresholds:
             run_deal_dict = dict(deal_dict)
             run_deal_dict["threshold"] = th
@@ -320,5 +448,41 @@ def main() -> None:
             deal_cfg = DEALConfig(**run_deal_dict)
             DEAL(data_cfg, deal_cfg, sgp_cfg).run()
     else:
-        deal_cfg = DEALConfig(**deal_dict)
-        DEAL(data_cfg, deal_cfg, sgp_cfg).run()
+        _run_threshold_cli(data_cfg, deal_dict, sgp_cfg, config, resume, wall_start)
+
+
+def _run_threshold_cli(
+    data_cfg: DataConfig,
+    deal_dict: dict,
+    sgp_cfg: SGPConfig,
+    config: dict,
+    resume: Optional[dict],
+    wall_start: float,
+) -> None:
+    """Standard mode with a single threshold, optionally resumed."""
+    deal_cfg = DEALConfig(**deal_dict)
+    start_step = 0
+    if resume is not None:
+        by_original_frame = {a.info["original_frame"]: a for a in data_cfg.images}
+        data_cfg = DataConfig(
+            images=[by_original_frame[i] for i in resume["run"]["frame_order"]],
+            seed=data_cfg.seed,
+        )
+    deal = DEAL(data_cfg, deal_cfg, sgp_cfg)
+    deal.wall_start = wall_start
+    deal.restart_context = {
+        "mode": "threshold",
+        "config": config,
+        "n_input_frames": len(data_cfg.images),
+    }
+    if resume is not None:
+        deal.restore(resume)
+        start_step = resume["run"]["step"]
+
+    if not deal.run(start_step=start_step):
+        print(f"[DEAL] Resume with: deal --restart {deal_cfg.output_prefix}.restart")
+        return
+    if deal_cfg.restart:
+        deal.write_checkpoint(
+            next_step=len(data_cfg.images), completed=True, finished=True
+        )

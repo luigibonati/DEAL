@@ -28,6 +28,18 @@ class DealActiveLearningModel:
         self.gp = self.calculator.gp_model
         self._update_count = 0
 
+    @classmethod
+    def from_file(cls, filename: str) -> "DealActiveLearningModel":
+        """Load a GP written by write() (e.g. <prefix>_sgp.json)."""
+        model = cls.__new__(cls)
+        model.config = None
+        model.calculator, model.kernels = SGP_Calculator.from_file(filename)
+        model.gp = model.calculator.gp_model
+        model._update_count = len(model.gp.training_data) + len(
+            model.gp.local_environments
+        )
+        return model
+
     @property
     def training_size(self) -> int:
         return max(len(self.gp.training_data), self._update_count)
@@ -154,12 +166,27 @@ class DealActiveLearningModel:
             self._update_count += 1
             return
 
+        if dft_forces is None:
+            # The full SGP update needs force labels (it crashes without them).
+            raise ValueError(
+                "Frame has no force labels, but a full GP update was requested "
+                "(train_hyps or a non-local variance_type). "
+                "Use train_hyps: false for unlabeled data."
+            )
+
         sgp_stress = self._to_sgp_stress(dft_stress)
         if force_only:
             dft_energy = None
             sgp_stress = None
 
-        structure_to_add = deepcopy(atoms)
+        # predict_uncertainty attaches the SGP calculator to atoms: detach it
+        # before copying, otherwise deepcopy serializes and rebuilds the GP.
+        calc = atoms.calc
+        atoms.calc = None
+        try:
+            structure_to_add = deepcopy(atoms)
+        finally:
+            atoms.calc = calc
         sp_results = {}
         if dft_forces is not None:
             sp_results["forces"] = dft_forces

@@ -39,6 +39,7 @@ dependencies = [
 deal = "deal.cli:main"
 deal-chemiscope = "deal.chemiscope_cli:main"
 deal-mask = "deal.mask_cli:main"
+deal-evaluate = "deal.evaluate_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

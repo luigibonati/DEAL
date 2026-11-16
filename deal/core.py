@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import List, Optional, Sequence
 
 import numpy as np
+import os
 import sys
 from pprint import pformat
 from copy import deepcopy
@@ -14,6 +15,9 @@ from ase.calculators.singlepoint import SinglePointCalculator
 
 from .config import DataConfig, DEALConfig, SGPConfig
 from .model import DealActiveLearningModel
+from .restart import restart_filename, truncate_xyz, write_restart
+
+_RUN_THRESHOLD = object()  # write_full_trajectory default: the run threshold
 from .runtime import format_runtime_info
 
 
@@ -62,6 +66,13 @@ class DEAL:
             "other": 0.0,
             "frames": 0,
         }
+        # wall_time is measured from here; the CLI moves it to its own start
+        self.wall_start = self.timers["start"]
+        # extra state (configuration, incremental iteration) stored in the
+        # restart file; filled by the CLI
+        self.restart_context = {}
+        self._max_step_time = 0.0
+        self._checkpoint_time = 0.0
 
     def configure_run(
         self,
@@ -126,11 +137,9 @@ class DEAL:
     # ------------------------------------------------------------------
 
     def _use_local_uncertainty_fast_path(self) -> bool:
-        return (
-            self.sgp_cfg.variance_type == "local"
-            and not self.deal_cfg.train_hyps
-            and not self.deal_cfg.save_gp
-        )
+        # The saved GP (save_gp/restart) is then uncertainty-only, also on
+        # labeled data: DEAL never uses its energy/force predictions.
+        return self.sgp_cfg.variance_type == "local" and not self.deal_cfg.train_hyps
 
     @staticmethod
     def _copy_atoms_with_results(atoms: Atoms) -> Atoms:
@@ -289,19 +298,29 @@ class DEAL:
         )
         self.full_trajectory_count += 1
 
-    def write_full_trajectory(self, images: Optional[Sequence[Atoms]] = None) -> None:
+    def write_full_trajectory(
+        self,
+        images: Optional[Sequence[Atoms]] = None,
+        filename: Optional[str] = None,
+        threshold=_RUN_THRESHOLD,
+        description: Optional[str] = None,
+    ) -> None:
         """
         Write all frames with atomic uncertainties predicted by the current GP.
 
         Called once the selection is finished, so every frame is scored by
-        the same (final) model.
+        the same (final) model; deal-evaluate uses it with a loaded model.
+        threshold (default: the run threshold; None to skip) is only used
+        for the printed summary.
         """
         images = list(self.data_cfg.images if images is None else images or [])
-        filename = f"{self.deal_cfg.output_prefix}_trajectory_uncertainty.xyz"
-        print(
-            f"\n[DEAL] Re-evaluating {len(images)} frames with the final GP "
-            f"({self.dft_count} selected frames)."
-        )
+        if filename is None:
+            filename = f"{self.deal_cfg.output_prefix}_trajectory_uncertainty.xyz"
+        if threshold is _RUN_THRESHOLD:
+            threshold = self.deal_cfg.threshold
+        if description is None:
+            description = f"the final GP ({self.dft_count} selected frames)"
+        print(f"\n[DEAL] Re-evaluating {len(images)} frames with {description}.")
         t_start = time.perf_counter()
         max_uncertainties = []
         for step, atoms in enumerate(images):
@@ -339,23 +358,44 @@ class DEAL:
 
         max_uncertainties = np.asarray(max_uncertainties, dtype=float)
         valid = max_uncertainties[np.isfinite(max_uncertainties) & (max_uncertainties >= 0)]
-        print(f"[OUTPUT] Saved full trajectory with final-GP atomic uncertainty to: {filename}")
+        print(f"[OUTPUT] Saved full trajectory with atomic uncertainty to: {filename}")
         if len(valid):
-            n_above = int(np.count_nonzero(valid > self.deal_cfg.threshold))
             print(
                 f"         max_atomic_uncertainty per frame: min {valid.min():.4g} | "
                 f"mean {valid.mean():.4g} | max {valid.max():.4g}"
             )
-            print(
-                f"         frames above final threshold ({self.deal_cfg.threshold:.4g}): "
-                f"{n_above}/{len(valid)}"
-            )
+            if threshold is not None:
+                n_above = int(np.count_nonzero(valid > threshold))
+                print(
+                    f"         frames above threshold ({threshold:.4g}): "
+                    f"{n_above}/{len(valid)}"
+                )
 
     # ------------------------------------------------------------------
     # main loop
     # ------------------------------------------------------------------
-    def run(self) -> None:
+    def run(self, start_step: int = 0) -> bool:
+        """
+        Process the frames from start_step on.
+
+        Returns False if the run stopped because wall_time was reached (a
+        restart checkpoint is then written), True when all frames were done.
+        """
+        previous_start = None
         for step, ase_frame in enumerate(self._frames()):
+            if step < start_step:  # already processed before the restart
+                continue
+            now = time.perf_counter()
+            if previous_start is not None:
+                self._max_step_time = max(self._max_step_time, now - previous_start)
+            previous_start = now
+            if self._wall_time_reached(now):
+                print(
+                    f"\n[DEAL] Wall time ({self.deal_cfg.wall_time:.0f} s) almost reached: "
+                    f"stopping before frame {step + 1}/{len(self.data_cfg.images)}."
+                )
+                self.write_checkpoint(next_step=step)
+                return False
             self.timers["frames"] += 1
             step_start = time.perf_counter()
             init_frame = False
@@ -690,6 +730,93 @@ class DEAL:
 
         if self.deal_cfg.save_full_trajectory == "final":
             self.write_full_trajectory()
+        return True
+
+    # ------------------------------------------------------------------
+    # restart
+    # ------------------------------------------------------------------
+    def _wall_time_reached(self, now: float) -> bool:
+        """True if one more frame plus a checkpoint might not fit in wall_time."""
+        if self.deal_cfg.wall_time is None:
+            return False
+        margin = 2.0 * self._max_step_time + 2.0 * self._checkpoint_time + 5.0
+        return now - self.wall_start + margin >= self.deal_cfg.wall_time
+
+    def _output_files(self) -> dict:
+        prefix = self.deal_cfg.output_prefix
+        return {
+            "sgp_file": os.path.abspath(f"{prefix}_sgp.json"),
+            "selected_file": os.path.abspath(f"{prefix}_selected.xyz"),
+            "trajectory_file": os.path.abspath(f"{prefix}_trajectory_uncertainty.xyz"),
+        }
+
+    def write_checkpoint(
+        self, next_step: int, completed: bool = False, finished: bool = False
+    ) -> str:
+        """
+        Write <prefix>_sgp.json and <prefix>.restart.
+
+        next_step is the first frame of the current run not yet processed;
+        completed marks a run (iteration) whose frames were all processed;
+        finished marks the whole selection as done.
+        """
+        t0 = time.perf_counter()
+        files = self._output_files()
+        self.model.write(files["sgp_file"])
+        filename = restart_filename(self.deal_cfg.output_prefix)
+        write_restart(
+            filename,
+            {
+                **self.restart_context,
+                "finished": finished,
+                "run": {
+                    "step": next_step,
+                    "completed": completed,
+                    "frame_order": [
+                        int(atoms.info["original_frame"])
+                        for atoms in self.data_cfg.images
+                    ],
+                    "threshold": self.deal_cfg.threshold,
+                    "dft_count": self.dft_count,
+                    "full_trajectory_count": self.full_trajectory_count,
+                    "last_dft_step": self.last_dft_step,
+                    **files,
+                },
+            },
+        )
+        self._checkpoint_time = time.perf_counter() - t0
+        print(f"[OUTPUT] Saved restart checkpoint to: {filename}")
+        return filename
+
+    def load_model(self, filename: str) -> None:
+        """Replace the GP with one saved by save_gp/restart (<prefix>_sgp.json)."""
+        model = DealActiveLearningModel.from_file(filename)
+        missing = set(self._get_species()) - set(model.gp.species_map)
+        if missing:
+            raise ValueError(
+                f"Input contains species {sorted(missing)} not covered by the "
+                f"GP in {filename} (species={sorted(model.gp.species_map)})."
+            )
+        self.model = model
+        self.sgp_calc = self.model.calculator
+        self.kernels = self.model.kernels
+        self.gp = self.model.gp
+
+    def restore(self, state: dict) -> None:
+        """Load the GP and counters of a restart file and trim the outputs to it."""
+        run = state["run"]
+        self.load_model(run["sgp_file"])
+        self.dft_count = run["dft_count"]
+        self.full_trajectory_count = run["full_trajectory_count"]
+        self.selected_frames = truncate_xyz(run["selected_file"], self.dft_count)
+        if self.deal_cfg.save_full_trajectory is True:
+            truncate_xyz(run["trajectory_file"], self.full_trajectory_count)
+        if not run["completed"]:
+            self.last_dft_step = run["last_dft_step"]
+        print(
+            f"[DEAL] Restarted from {run['sgp_file']} "
+            f"({self.dft_count} selected frames so far)."
+        )
 
     def _store_selected_frame(self, step: int, ase_frame, target_atoms: Sequence[int]):
         """Keep a copy of the selected ASE frame for writing to XYZ."""

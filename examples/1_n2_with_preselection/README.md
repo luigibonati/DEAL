@@ -27,4 +27,6 @@ deal --file traj.xyz \
 ```
 
 Because no fixed preprocessing threshold is specified, DEAL uses its automatic
-frame and atom thresholds. The resulting mask is consumed in memory.
+frame and atom thresholds. The YAML also lowers `lower_factor` to 0.9 for a
+broader frame preselection; this option has no CLI flag, so the CLI invocation
+uses the default (1.1). The resulting mask is consumed in memory.

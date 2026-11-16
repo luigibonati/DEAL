@@ -13,7 +13,7 @@ It consists of two steps:
 1. preselect configurations using MLP uncertainty (e.g. maximum uncertainty obtained with query-by-committee)
 2. select a dataset of non-redundant configurations using the local predictive variance of a Gaussian process
 
-In addition, step 2 can also be used to subsample a trajectory without uncertainty preselection (see the [tutorials](tutorials/README.md)).
+In addition, step 2 can also be used to subsample a trajectory without uncertainty preselection (see the [examples](examples/README.md)).
 
 A short practical [introduction](DEAL.md) describes the main ingredients (SGP, local descriptors, uncertainty).
 
@@ -58,6 +58,8 @@ typically important for the active-learning decision.
   - [Python usage](#python-usage)
   - [Multiple thresholds](#multiple-thresholds)
   - [Incremental selection (CLI)](#incremental-selection-cli)
+  - [Restart and wall time](#restart-and-wall-time)
+  - [Evaluate a trajectory with a saved GP](#evaluate-a-trajectory-with-a-saved-gp)
 - [Files](#files)
   - [Input files](#input-files)
   - [Output files](#output-files)
@@ -70,7 +72,7 @@ typically important for the active-learning decision.
 
 * **`deal/`** – The core Python package.
 * **`examples/`** – Two minimal, runnable CLI and YAML examples.
-* **`tutorials/`** – Four guided, realistic workflows demonstrating how DEAL works.
+* **`examples/old/`** – Four guided, realistic workflows from the previous release (notebooks).
 * **`npj_supporting_data/`** – Jupyter notebooks reproducing the full workflow described in the publication, including the use of Gaussian Process Regression for reaction-pathway exploration.
 * **`tests/`** – A test suite to verify that the installation is correct and all components work as expected.
 
@@ -174,18 +176,21 @@ deal:
   # OR
   #max_selected: 50       # incremental mode: mutually exclusive with `threshold`
   #max_iterations: 10     # max iterations for incremental mode
-  #threshold_factor: 0.7  # threshold_i = threshold_factor**(i+1)
+  #threshold_factor: 0.7  # threshold_i = threshold_factor**i, i = 1, 2, ...
   
   update_threshold: null # if not set it is chosen as 0.8 * threshold
   max_atoms_added: 0.2    # limit selected environments added per configuration: integer count, fraction in (0,1), or -1 for no limit
   mask: null              # auto: preprocessing mask if configured; otherwise all atoms
-  initial_atoms: null     # specify which atoms to use for GP initialization (list, fraction or number. Default: null, 1 atom per species)
+  initial_atoms: null     # atoms used to initialize the GP: list of indices or fraction in (0,1) per species (null: 1 atom per species)
+  min_steps_with_model: 0 # minimum number of frames between two selections
   output_prefix: deal     # prefix for output files
-  force_only: true
-  train_hyps: false       # whether to retrain hyperparameters at each iteration (slower)
+  force_only: true        # with train_hyps, train on forces only (ignore energies/stress)
+  train_hyps: false       # retrain hyperparameters after each update (slower, needs force labels)
   verbose: false          # allowed values: true/false/"debug"
-  save_gp: false
+  save_gp: false          # write the final GP to <prefix>_sgp.json
   save_full_trajectory: false  # false | true (every evaluated frame, on-the-fly GP) | "final" (all frames, final GP)
+  restart: false          # write <prefix>.restart + <prefix>_sgp.json after every iteration
+  wall_time: null         # seconds; stop cleanly and write a restart before this limit
 
 sgp:
   gp: SGP_Wrapper
@@ -200,14 +205,19 @@ sgp:
       cutoff_function: cosine
       radial_basis: chebyshev
   cutoff: 4.5
-  
+  #species: null          # atomic numbers; null: detected from the first frame
+  variance_type: local    # local uncertainty (enables the fast path below)
+  max_iterations: 20      # hyperparameter optimization steps (train_hyps only)
 ```
 
-When `variance_type: local`, `train_hyps: false`, and `save_gp: false`, DEAL
-automatically uses a local-uncertainty fast path. Local uncertainty depends only
-on the sparse-environment covariance matrix, so training labels, `Kuf`, posterior
-mean, and QR updates are skipped. Set `save_gp: true` or `train_hyps: true` when
-a complete trainable/predictive GP model is required.
+When `variance_type: local` and `train_hyps: false`, DEAL automatically uses a
+local-uncertainty fast path. Local uncertainty depends only on the
+sparse-environment covariance matrix, so training labels, `Kuf`, posterior
+mean, and QR updates are skipped, also on labeled data. The model saved by
+`save_gp` or `restart` is then uncertainty-only, which is all that selection,
+restart and `deal-evaluate` need. The complete GP (with labels and posterior
+mean) is built only with `train_hyps: true` or a non-local `variance_type`,
+which need force labels.
 
 If you want to restrict DEAL to atoms selected by an external uncertainty
 estimate, prepare the trajectory first with `deal-mask`:
@@ -250,12 +260,26 @@ deal:
   mask: true
 ```
 
-When `mask_threshold` is omitted, DEAL follows the automatic preprocessing
-rule: it computes the mean of the maximum per-atom uncertainty in each frame,
-selects frames whose maximum lies between
-`1.1` and `4.0` times that mean, and selects atoms above `0.3` times their
-frame's maximum. These constants can be changed with `lower_factor`,
-`upper_factor`, and `mask_fraction`.
+**Notation.** Let $u_{f,i}$ be the uncertainty of atom $i$ in frame $f$, read
+from the `key` array. If `key` stores several values per atom, DEAL takes their
+maximum: e.g. for the per-component committee standard deviation of the forces,
+$u_{f,i} = \max(\sigma_{f,i,x}, \sigma_{f,i,y}, \sigma_{f,i,z})$, which is
+`force_std_comp_max`. Each frame is represented by its most uncertain atom,
+and $\overline{M}$ is the mean of these maxima over the $N$ frames:
+
+$$
+M_f = \max_i u_{f,i}, \qquad \overline{M} = \frac{1}{N}\sum_{f=1}^{N} M_f
+$$
+
+**Automatic thresholds** (default, when `mask_threshold` is omitted). Atom $i$
+of frame $f$ is kept ($\mathrm{mask}_{f,i} = 1$) if both conditions hold:
+
+1. the frame is neither too certain nor too uncertain:
+   $\;a\,\overline{M} < M_f < b\,\overline{M}$
+2. the atom is close to the frame maximum: $\;u_{f,i} > c\,M_f$
+
+with $a$ = `lower_factor` (default 1.1), $b$ = `upper_factor` (default 4.0) and
+$c$ = `mask_fraction` (default 0.3).
 
 During the initial stage of active learning, query-by-committee uncertainty may
 not yet be reliable because the committee has been trained on limited data. For
@@ -263,6 +287,58 @@ a safer, broader preselection in this regime, reduce `lower_factor` to a value
 in the `0.5–0.9` range and `upper_factor` to a value in the `1.5–3.0` range.
 Reassess these factors as the training set grows and the uncertainty estimates
 become better calibrated.
+
+**Manual thresholds.** Alternatively, set the threshold with `mask_threshold` ($t$). The
+mask is then applied atom by atom, with no frame preselection, and `mode`
+chooses the comparison (`mask_upper_threshold`, $t_\text{up} > t$, is required
+by `between` and `outside`):
+
+| `mode` | atom $i$ is kept if |
+|---|---|
+| `above` (default when `mask_threshold` is set) | $u_{f,i} > t$ |
+| `below` | $u_{f,i} < t$ |
+| `between` | $t < u_{f,i} < t_\text{up}$ |
+| `outside` | $u_{f,i} < t$ or $u_{f,i} > t_\text{up}$ |
+
+The automatic mode uses the same filter as `between`, applied to the frame
+maxima $M_f$ with $t = a\,\overline{M}$ and $t_\text{up} = b\,\overline{M}$,
+followed by `above` on the atoms of the kept frames with $t = c\,M_f$.
+
+```yaml
+preprocessing:
+  key: force_std_comp_max
+  mask_threshold: 0.05
+  mode: between
+  mask_upper_threshold: 0.5   # e.g. drop atoms with unphysical uncertainty
+```
+
+The uncertainty preprocessing is not required to use a mask. Any per-atom
+array of 0/1 values works, so the mask can be tailored to the system with the
+criterion that suits it best, e.g. only one chemical species, only the atoms in
+a given region (an adsorbate, a surface layer, the neighborhood of a defect),
+or a combination with an uncertainty criterion. Build it with ASE and point
+`deal.mask` to it:
+
+```python
+from ase.io import read, write
+
+frames = read("traj.xyz", index=":")
+for atoms in frames:
+    is_n = atoms.numbers == 7                       # only nitrogen atoms
+    near_surface = atoms.positions[:, 2] > 10.0     # only atoms above z = 10 Å
+    atoms.arrays["my_mask"] = (is_n | near_surface).astype(int)
+write("traj_masked.xyz", frames)
+```
+
+```yaml
+data:
+  files: ["traj_masked.xyz"]
+deal:
+  mask: my_mask   # or name the array deal_mask and use mask: true
+```
+
+All atoms remain available as neighbors in the descriptors; the mask only
+decides which atoms are evaluated and can trigger a selection.
 
 `plot` defaults to `true` and writes `preprocessing_selection.png`. Set it to
 `false` to disable plotting or to a filename such as
@@ -290,6 +366,7 @@ One can also use a base config file and override via CLI the options:
 deal -c input.yaml -t 0.15
 deal -c input.yaml --max-selected 50
 deal -c input.yaml --mask false
+deal -c input.yaml --wall-time 85000
 ```
 
 ### Python Usage
@@ -353,34 +430,105 @@ The run stops when one of these conditions is met: either selected structures re
 
 Note: `threshold` and `max_selected` are mutually exclusive in the CLI.
 
+### Restart and wall time
+
+Restart is handled by the `deal` command-line tool, in both standard (single
+threshold) and incremental mode. On a cluster, set a `wall_time` (in seconds,
+a bit below the job limit) and `restart: true`:
+
+```yaml
+deal:
+  max_selected: 2500
+  restart: true      # checkpoint after every iteration
+  wall_time: 85000   # stop cleanly before the job is killed
+```
+
+DEAL then writes two files, after every iteration and when the wall time is
+about to be reached:
+
+- `deal_sgp.json`: the GP model (uncertainty-only on the local-uncertainty fast path)
+- `deal.restart`: everything needed for an exact restart (configuration,
+  iteration and frame reached, frame order, already selected frames, random
+  number generator state, output counters)
+
+Resume with:
+
+```bash
+deal --restart deal.restart --wall-time 85000
+```
+
+The configuration stored in `deal.restart` is used, so the selection continues
+exactly where it stopped and `deal_selected.xyz` (and the trajectory written with
+`save_full_trajectory: true`) are appended. Frames written after the last
+checkpoint, e.g. by a job killed without warning, are dropped first, so nothing
+is duplicated. When the selection is over, the restart file is marked as
+finished and `deal --restart` only reports it. `wall_time` alone (without
+`restart`) still writes a checkpoint when the limit is reached.
+
+### Evaluate a trajectory with a saved GP
+
+`deal-evaluate` reads a GP written by `save_gp`/`restart` and writes, for every
+frame, the same per-atom `atomic_uncertainty` and frame `max_atomic_uncertainty`
+as `save_full_trajectory`. The model is fixed, so on-the-fly and final
+evaluation coincide:
+
+```bash
+deal-evaluate -m deal_sgp.json -f new_traj.xyz -o new_traj_uncertainty.xyz
+deal-evaluate -m deal_sgp.json -c input.yaml -t 0.3   # data, preprocessing and mask from the DEAL input
+```
+
+By default `deal_mask` is used when the frames contain it (`--mask false` to
+use all atoms), and the output is `<input>_uncertainty.xyz`. `-t` also reports
+how many frames exceed that uncertainty.
+
+A saved GP can also be loaded in Python:
+
+```python
+from deal.model import DealActiveLearningModel
+
+model = DealActiveLearningModel.from_file("deal_sgp.json")
+uncertainty = model.predict_uncertainty(model.to_model_atoms(atoms))
+```
+
+#### Alternative: rebuild a GP from selected frames
+
+`deal_selected.xyz` stores, for each frame, the atoms added to the GP in
+`atoms.info["target_atoms"]`. Replaying those environments rebuilds the same
+uncertainty model without a saved GP, e.g. to seed a new selection on a different
+trajectory. The restart above is simpler and exact for an interrupted run.
+
 ## Files
 
 ### Input files
 
 As explained in the [introduction](DEAL.md), DEAL uses a sparse Gaussian
 process as a proxy for uncertainty. Input trajectories may be unlabeled: energy,
-forces, and stress are all optional when using the local-uncertainty fast path
-described above. If labels are present in an `.extxyz` file, DEAL preserves and
-uses the available properties; it does not require forces or stress merely to
-select configurations.
+forces, and stress are all optional with the local-uncertainty fast path
+described above, and labels present in an `.extxyz` file are not needed to
+select configurations. They are kept in the selected frames.
 
-Labels are needed only when requesting operations that train the predictive
-model, such as hyperparameter optimization. Configure the matching SGP training
-flags (`energy_training`, `force_training`, and `stress_training`) for the label
-types available in that case.
+Force labels are needed only for `train_hyps: true` (hyperparameter
+optimization), which trains the full GP; with `force_only: true` (default) energies
+and stress are ignored.
 
 ### Output files
 
-In both cases the following file is generated (with the default `output_prefix=deal`):
+In every mode the following file is generated (with the default `output_prefix=deal`):
 
 1. **`deal_selected.xyz` – selected frames** 
 
 Contains the atomic configurations where the GP uncertainty exceeded the threshold.
-Includes atoms.info["original_frame"] indicating the original trajectory index.
-If `save_gp: true`, DEAL also writes:
-2. **`deal_sgp.json` – final GP model**
+Includes atoms.info["original_frame"] indicating the original trajectory index
+and atoms.info["target_atoms"] with the atoms added to the GP.
+
+If `save_gp: true` (or `restart: true`), DEAL also writes:
+
+2. **`deal_sgp.json` – final GP model**, and with `restart: true`
+   **`deal.restart`** (see [Restart and wall time](#restart-and-wall-time)).
+   The model can be reused with [`deal-evaluate`](#evaluate-a-trajectory-with-a-saved-gp).
 
 If `save_full_trajectory` is enabled, DEAL also writes:
+
 3. **`deal_trajectory_uncertainty.xyz` – trajectory with uncertainties**
    - `true`: every frame is written as it is evaluated, with the uncertainty
      of the GP at that moment (before the frame is possibly added). In
@@ -390,7 +538,7 @@ If `save_full_trajectory` is enabled, DEAL also writes:
      with the final GP (also in incremental mode), so all uncertainties come
      from the same model. A short summary is printed.
 
-They both contain:
+The trajectory (also the one written by `deal-evaluate`) contains:
 - per-atom array `atomic_uncertainty` (saved in `atoms.arrays`)
 - frame scalar `max_atomic_uncertainty` (saved in `atoms.info`)
 
@@ -400,8 +548,8 @@ explicitly, DEAL reads a per-atom mask array from the trajectory.
 `mask: true` uses the default `deal_mask` array created by `deal-mask`; a string
 value uses that custom array name. Atoms with zero/false mask values are excluded
 from GP uncertainty prediction and written with `atomic_uncertainty = -1.0`.
-Frames with no eligible atoms are skipped. If `mask: false`, every atom is
-eligible.
+Frames with no eligible atoms are never selected (their
+`max_atomic_uncertainty` is `-1.0`). If `mask: false`, every atom is eligible.
 
 With the B2 descriptor, masked prediction and local GP updates construct native
 neighbor lists and descriptors only for eligible central atoms. All atoms remain
@@ -462,14 +610,14 @@ Local environments are characterized via the Atomic Cluster Expansion formalism 
   mask: null # preprocessing mask if configured; otherwise all atoms
 ```      
 
-The `threshold` parameter in the DEAL configuration controls when a local environment is flagged by the SGP’s predictive variance (normalized by the noise hyperparameter). If any environment exceeds the threshold, the GP is updated and that environment (plus any others above `update_threshold`, up to `max_atoms_added`) is added.
+The `threshold` parameter in the DEAL configuration controls when a local environment is flagged by the SGP’s predictive standard deviation (normalized by the signal hyperparameter σ). If any environment exceeds the threshold, the GP is updated and that environment (plus any others above `update_threshold`, up to `max_atoms_added`) is added.
 
 Some tips:
 
 - The uncertainty values are unitless and range between 0 and 1. Lower threshold means more selected structures; higher threshold, fewer selections.
 - A good starting point is around 0.1. As a rule of thumb, homogeneous, condensed and/or crystalline systems tend to have fewer different local environments and require smaller thresholds (<<0.1), whereas heterogeneous systems may require larger ones (>0.1). This is also connected with the number of species (more species -> higher threshold required).
 - Try a few values and compare how many structures are selected; distributions often are very similar across thresholds, what changes is the number of structures. One can decide based on the computational budget (for DFT calculations).
-- The recommended strategy is **incremental selection**: start with a high threshold, then decrease it progressively until a target number of structures is reached. This is easily achieved with the CLI by setting `max_selected` (or `--max-selected`; see the [minimal examples](examples/README.md) and [Tutorial 4](tutorials/4_incremental_selection/README.md)).
+- The recommended strategy is **incremental selection**: start with a high threshold, then decrease it progressively until a target number of structures is reached. This is easily achieved with the CLI by setting `max_selected` (or `--max-selected`; see the [minimal examples](examples/README.md) and [Tutorial 4](examples/old/4_incremental_selection/README.md)).
 - Use chemiscope/OVITO to visualize the selected structures and identify which environments triggered selection. 
 
 Note: the training time scales unfavorably with the number of samples. For a large dataset, it is advised to divide it into chunks, run DEAL separately on each chunk, and then perform a second DEAL selection on the output structures.
