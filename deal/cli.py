@@ -182,6 +182,12 @@ def _run_incremental_cli(data_cfg: DataConfig, deal_dict: dict, sgp_cfg: SGPConf
         run_deal_dict = dict(deal_dict)
         run_deal_dict["threshold"] = deal_threshold
         deal_cfg = DEALConfig(**run_deal_dict)
+        # Each iteration only sees the remaining frames: with
+        # save_full_trajectory="final" the trajectory is written once at the
+        # end with the final GP (true keeps appending on-the-fly frames instead).
+        save_final_trajectory = deal_cfg.save_full_trajectory == "final"
+        if save_final_trajectory:
+            deal_cfg.save_full_trajectory = False
         data_iter_cfg = DataConfig(images=remaining_images, seed=data_cfg.seed)
 
         if iteration == 0:
@@ -213,6 +219,9 @@ def _run_incremental_cli(data_cfg: DataConfig, deal_dict: dict, sgp_cfg: SGPConf
             f"reaching max_selected={max_selected}. "
             f"Current selected: {len(selected_frames)}."
         )
+
+    if deal is not None and save_final_trajectory:
+        deal.write_full_trajectory(all_images)
 
 
 def main() -> None:

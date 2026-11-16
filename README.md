@@ -185,7 +185,7 @@ deal:
   train_hyps: false       # whether to retrain hyperparameters at each iteration (slower)
   verbose: false          # allowed values: true/false/"debug"
   save_gp: false
-  save_full_trajectory: false  # if true, writes <prefix>_trajectory_uncertainty.xyz with per-atom array "atomic_uncertainty"
+  save_full_trajectory: false  # false | true (every evaluated frame, on-the-fly GP) | "final" (all frames, final GP)
 
 sgp:
   gp: SGP_Wrapper
@@ -380,8 +380,15 @@ Includes atoms.info["original_frame"] indicating the original trajectory index.
 If `save_gp: true`, DEAL also writes:
 2. **`deal_sgp.json` – final GP model**
 
-If `save_full_trajectory: true`, DEAL also writes:
-3. **`deal_trajectory_uncertainty.xyz` – full trajectory with uncertainties**
+If `save_full_trajectory` is enabled, DEAL also writes:
+3. **`deal_trajectory_uncertainty.xyz` – trajectory with uncertainties**
+   - `true`: every frame is written as it is evaluated, with the uncertainty
+     of the GP at that moment (before the frame is possibly added). In
+     incremental mode frames are appended across iterations, so a frame can
+     appear once per iteration; `atoms.info["threshold"]` tells them apart.
+   - `"final"`: at the end of the selection, every input frame is re-evaluated
+     with the final GP (also in incremental mode), so all uncertainties come
+     from the same model. A short summary is printed.
 
 They both contain:
 - per-atom array `atomic_uncertainty` (saved in `atoms.arrays`)

@@ -117,6 +117,7 @@ class DEAL:
             self.gp = self.model.gp
             self.selected_frames = []
             self.dft_count = 0
+            self.full_trajectory_count = 0
 
         self.last_dft_step = -(10**9)
 
@@ -270,12 +271,85 @@ class DEAL:
     def _store_full_trajectory_frame(
         self, step: int, ase_frame
     ) -> None:
-        """Store one frame of the full trajectory with atomic uncertainty array."""
-        if not self.deal_cfg.save_full_trajectory:
+        """
+        Store one evaluated frame with its on-the-fly atomic uncertainty.
+
+        Frames are appended across incremental iterations, so a frame can
+        appear once per iteration that evaluated it (see info["threshold"]).
+        """
+        if self.deal_cfg.save_full_trajectory is not True:
             return
         frame = ase_frame.copy()
         frame.info["step"] = step
-        write(f"{self.deal_cfg.output_prefix}_trajectory_uncertainty.xyz", frame, append=(step != 0))
+        frame.info["threshold"] = self.deal_cfg.threshold
+        write(
+            f"{self.deal_cfg.output_prefix}_trajectory_uncertainty.xyz",
+            frame,
+            append=(self.full_trajectory_count != 0),
+        )
+        self.full_trajectory_count += 1
+
+    def write_full_trajectory(self, images: Optional[Sequence[Atoms]] = None) -> None:
+        """
+        Write all frames with atomic uncertainties predicted by the current GP.
+
+        Called once the selection is finished, so every frame is scored by
+        the same (final) model.
+        """
+        images = list(self.data_cfg.images if images is None else images or [])
+        filename = f"{self.deal_cfg.output_prefix}_trajectory_uncertainty.xyz"
+        print(
+            f"\n[DEAL] Re-evaluating {len(images)} frames with the final GP "
+            f"({self.dft_count} selected frames)."
+        )
+        t_start = time.perf_counter()
+        max_uncertainties = []
+        for step, atoms in enumerate(images):
+            frame = self._copy_atoms_with_results(atoms)
+            candidate_mask = self._get_candidate_mask(frame)
+            if candidate_mask is not None and not np.any(candidate_mask):
+                atomic_uncertainty = np.full(len(frame), -1.0, dtype=float)
+            else:
+                candidate_atoms = (
+                    np.flatnonzero(candidate_mask).astype(int).tolist()
+                    if candidate_mask is not None
+                    else None
+                )
+                atomic_uncertainty = self.model.predict_uncertainty(
+                    self.model.to_model_atoms(frame), candidate_atoms=candidate_atoms
+                )
+                atomic_uncertainty = self._apply_candidate_mask(
+                    atomic_uncertainty, candidate_mask
+                )
+            frame.arrays["atomic_uncertainty"] = atomic_uncertainty
+            frame.info["max_atomic_uncertainty"] = (
+                float(np.nanmax(atomic_uncertainty))
+                if np.any(np.isfinite(atomic_uncertainty))
+                else float("nan")
+            )
+            frame.info["step"] = step
+            max_uncertainties.append(frame.info["max_atomic_uncertainty"])
+            write(filename, frame, append=(step != 0))
+            sys.stdout.write(
+                f"\r[DEAL] Evaluated: {step + 1:>5}/{len(images)} | "
+                f"Elapsed: {time.perf_counter() - t_start:8.2f} s"
+            )
+            sys.stdout.flush()
+        print("")
+
+        max_uncertainties = np.asarray(max_uncertainties, dtype=float)
+        valid = max_uncertainties[np.isfinite(max_uncertainties) & (max_uncertainties >= 0)]
+        print(f"[OUTPUT] Saved full trajectory with final-GP atomic uncertainty to: {filename}")
+        if len(valid):
+            n_above = int(np.count_nonzero(valid > self.deal_cfg.threshold))
+            print(
+                f"         max_atomic_uncertainty per frame: min {valid.min():.4g} | "
+                f"mean {valid.mean():.4g} | max {valid.max():.4g}"
+            )
+            print(
+                f"         frames above final threshold ({self.deal_cfg.threshold:.4g}): "
+                f"{n_above}/{len(valid)}"
+            )
 
     # ------------------------------------------------------------------
     # main loop
@@ -302,7 +376,7 @@ class DEAL:
                     dtype=float,
                 )
                 ase_frame.info["max_atomic_uncertainty"] = -1.0
-                if self.deal_cfg.save_full_trajectory:
+                if self.deal_cfg.save_full_trajectory is True:
                     t_io0 = time.perf_counter()
                     self._store_full_trajectory_frame(step, ase_frame)
                     self.timers["io_write"] += time.perf_counter() - t_io0
@@ -367,7 +441,7 @@ class DEAL:
                         dtype=float,
                     )
                     ase_frame.info["max_atomic_uncertainty"] = -1.0
-                    if self.deal_cfg.save_full_trajectory:
+                    if self.deal_cfg.save_full_trajectory is True:
                         t_io0 = time.perf_counter()
                         self._store_full_trajectory_frame(step, ase_frame)
                         self.timers["io_write"] += time.perf_counter() - t_io0
@@ -426,7 +500,7 @@ class DEAL:
                 else float("nan")
             )
 
-            if self.deal_cfg.save_full_trajectory:
+            if self.deal_cfg.save_full_trajectory is True:
                 t_io0 = time.perf_counter()
                 self._store_full_trajectory_frame(step, ase_frame)
                 self.timers["io_write"] += time.perf_counter() - t_io0
@@ -577,9 +651,11 @@ class DEAL:
                     f"[OUTPUT] Saved GP model to {self.deal_cfg.output_prefix}_sgp.json"
                 )
 
-        if self.deal_cfg.save_full_trajectory and self.deal_cfg.verbose:
+        if self.deal_cfg.save_full_trajectory is True and self.deal_cfg.verbose:
             print(
-                f"[OUTPUT] Saved full trajectory with atomic uncertainty {self.deal_cfg.output_prefix}_trajectory_uncertainty.xyz to:"
+                f"[OUTPUT] Saved on-the-fly atomic uncertainty of every evaluated frame "
+                f"({self.full_trajectory_count} so far) to: "
+                f"{self.deal_cfg.output_prefix}_trajectory_uncertainty.xyz"
             )
 
         # final total time
@@ -611,6 +687,9 @@ class DEAL:
             print(f"    update        : {upd:8.2f} ({upd * percent_scale:4.1f}%)")
             print(f"    io_write      : {iow:8.2f} ({iow * percent_scale:4.1f}%)")
             print(f"    other         : {oth:8.2f} ({oth * percent_scale:4.1f}%)")
+
+        if self.deal_cfg.save_full_trajectory == "final":
+            self.write_full_trajectory()
 
     def _store_selected_frame(self, step: int, ase_frame, target_atoms: Sequence[int]):
         """Keep a copy of the selected ASE frame for writing to XYZ."""

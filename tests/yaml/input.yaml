@@ -21,7 +21,7 @@ deal:
   train_hyps: false
   verbose: debug
   save_gp: false
-  save_full_trajectory: true
+  save_full_trajectory: false
 
 sgp:
   gp: SGP_Wrapper

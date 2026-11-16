@@ -129,7 +129,9 @@ class DEALConfig:
     output_prefix: str = "deal"
     verbose: bool | str = False  # allowed values: true/false/"debug" (default: false)
     save_gp: bool = False
-    save_full_trajectory: bool = False
+    # false: no file; true: write every evaluated frame on the fly with the
+    # current GP; "final": re-evaluate all frames with the final GP at the end
+    save_full_trajectory: bool | str = False
     debug: bool = False  # internal debug flag
 
     # --- Validation of parameters ---
@@ -181,6 +183,14 @@ class DEALConfig:
             )
         if isinstance(self.mask, str) and self.mask == "":
             raise ValueError("'mask' cannot be an empty string.")
+
+        if isinstance(self.save_full_trajectory, str):
+            self.save_full_trajectory = self.save_full_trajectory.lower()
+        if self.save_full_trajectory not in (False, True, "final"):
+            raise ValueError(
+                "'save_full_trajectory' must be false, true or \"final\", "
+                f"got {self.save_full_trajectory!r}."
+            )
 
         self.threshold_factor = float(self.threshold_factor)
         if not (0 < self.threshold_factor < 1):

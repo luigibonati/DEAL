@@ -16,6 +16,14 @@ def main():
     config = DEALConfig(threshold=0.5, **parsed)
     assert config.update_threshold == 0.4
 
+    assert DEALConfig(save_full_trajectory="Final").save_full_trajectory == "final"
+    try:
+        DEALConfig(save_full_trajectory="all")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("invalid save_full_trajectory value was accepted")
+
     explicit_mask = DEALConfig(mask=True)
     assert explicit_mask.mask is True
     assert _parse_mask_arg("null") is None

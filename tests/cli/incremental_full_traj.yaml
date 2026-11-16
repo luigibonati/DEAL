@@ -1,0 +1,26 @@
+data:
+  files: "../data/traj.xyz"
+  shuffle: true
+  seed: 42
+
+deal:
+  max_selected: 5
+  max_iterations: 5
+  mask: false
+  output_prefix: deal_incremental
+  force_only: true
+  save_full_trajectory: final
+
+sgp:
+  gp: SGP_Wrapper
+  kernels:
+  - name: NormalizedDotProduct
+    sigma: 2
+    power: 2
+  descriptors:
+  - name: B2
+    nmax: 8
+    lmax: 3
+    cutoff_function: cosine
+    radial_basis: chebyshev
+  cutoff: 4.5
