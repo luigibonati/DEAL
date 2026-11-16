@@ -692,8 +692,15 @@ class DEAL:
             self.write_full_trajectory()
 
     def _store_selected_frame(self, step: int, ase_frame, target_atoms: Sequence[int]):
-        """Keep a copy of the selected ASE frame for writing to XYZ."""
-        sel = ase_frame.copy()
+        """Keep a copy of the selected ASE frame for writing to XYZ.
+
+        ``Atoms.copy()`` deliberately omits the attached calculator.  For
+        extxyz input, however, ASE keeps the reference energy and forces in
+        that calculator's results rather than in ``Atoms.info``/``arrays``.
+        Use the result-preserving copy helper so the selected trajectory
+        remains suitable as labelled training data.
+        """
+        sel = self._copy_atoms_with_results(ase_frame)
         sel.info["step"] = step
         if "original_frame" not in sel.info:
             sel.info["original_frame"] = step
