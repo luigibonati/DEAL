@@ -186,6 +186,8 @@ deal:
   verbose: false          # allowed values: true/false/"debug"
   save_gp: false
   save_full_trajectory: false  # false | true (every evaluated frame, on-the-fly GP) | "final" (all frames, final GP)
+  restart: false          # write <prefix>.restart + <prefix>_sgp.json after every iteration
+  wall_time: null         # seconds; stop cleanly and write a restart before this limit
 
 sgp:
   gp: SGP_Wrapper
@@ -203,11 +205,13 @@ sgp:
   
 ```
 
-When `variance_type: local`, `train_hyps: false`, and `save_gp: false`, DEAL
-automatically uses a local-uncertainty fast path. Local uncertainty depends only
-on the sparse-environment covariance matrix, so training labels, `Kuf`, posterior
-mean, and QR updates are skipped. Set `save_gp: true` or `train_hyps: true` when
-a complete trainable/predictive GP model is required.
+When `variance_type: local` and `train_hyps: false`, DEAL automatically uses a
+local-uncertainty fast path. Local uncertainty depends only on the
+sparse-environment covariance matrix, so training labels, `Kuf`, posterior
+mean, and QR updates are skipped. With `save_gp: true` on labeled data (forces
+in every frame) DEAL builds the complete GP instead, so the saved model also
+predicts energies and forces. On unlabeled data the saved model is
+uncertainty-only. `train_hyps: true` always needs force labels.
 
 If you want to restrict DEAL to atoms selected by an external uncertainty
 estimate, prepare the trajectory first with `deal-mask`:
@@ -353,6 +357,58 @@ The run stops when one of these conditions is met: either selected structures re
 
 Note: `threshold` and `max_selected` are mutually exclusive in the CLI.
 
+### Restart and wall time
+
+On a cluster, set a `wall_time` (in seconds, a bit below the job limit) and
+`restart: true`:
+
+```yaml
+deal:
+  max_selected: 2500
+  restart: true      # checkpoint after every iteration
+  wall_time: 85000   # stop cleanly before the job is killed
+```
+
+DEAL then writes two files, after every iteration and when the wall time is
+about to be reached:
+
+- `deal_sgp.json`: the GP model (labeled data: full GP; unlabeled: uncertainty-only)
+- `deal.restart`: everything needed for an exact restart (configuration,
+  iteration and frame reached, frame order, already selected frames, random
+  number generator state, output counters)
+
+Resume with:
+
+```bash
+deal --restart deal.restart --wall-time 85000
+```
+
+The configuration stored in `deal.restart` is used, so the selection continues
+exactly where it stopped and `deal_selected.xyz` (and the trajectory written with
+`save_full_trajectory: true`) are appended. Frames written after the last
+checkpoint, e.g. by a job killed without warning, are dropped first, so nothing
+is duplicated. When the selection is over, the restart file is marked as
+finished and `deal --restart` only reports it. `wall_time` alone (without
+`restart`) still writes a checkpoint when the limit is reached. With
+`save_full_trajectory: "final"`, leave enough time for the final pass over all
+frames: it is not checkpointed.
+
+A saved GP can also be loaded in Python:
+
+```python
+from deal.model import DealActiveLearningModel
+
+model = DealActiveLearningModel.from_file("deal_sgp.json")
+uncertainty = model.predict_uncertainty(model.to_model_atoms(atoms))
+```
+
+#### Alternative: rebuild a GP from selected frames
+
+`deal_selected.xyz` stores, for each frame, the atoms added to the GP in
+`atoms.info["target_atoms"]`. Replaying those environments rebuilds the same
+uncertainty model without a saved GP, e.g. to seed a new selection on a different
+trajectory. The restart above is simpler and exact for an interrupted run.
+
 ## Files
 
 ### Input files
@@ -377,8 +433,9 @@ In both cases the following file is generated (with the default `output_prefix=d
 
 Contains the atomic configurations where the GP uncertainty exceeded the threshold.
 Includes atoms.info["original_frame"] indicating the original trajectory index.
-If `save_gp: true`, DEAL also writes:
-2. **`deal_sgp.json` – final GP model**
+If `save_gp: true` (or `restart: true`), DEAL also writes:
+2. **`deal_sgp.json` – final GP model**, and with `restart: true`
+   **`deal.restart`** (see [Restart and wall time](#restart-and-wall-time))
 
 If `save_full_trajectory` is enabled, DEAL also writes:
 3. **`deal_trajectory_uncertainty.xyz` – trajectory with uncertainties**

@@ -7,3 +7,4 @@ python test_masked_prediction.py
 python test_runtime_info.py
 python test_sgp_atoms.py
 python test_save_gp.py
+python test_restart.py

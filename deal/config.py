@@ -132,6 +132,10 @@ class DEALConfig:
     # false: no file; true: write every evaluated frame on the fly with the
     # current GP; "final": re-evaluate all frames with the final GP at the end
     save_full_trajectory: bool | str = False
+    # write <prefix>.restart and <prefix>_sgp.json after every iteration and
+    # when wall_time is reached; resume with `deal --restart <prefix>.restart`
+    restart: bool = False
+    wall_time: Optional[float] = None  # seconds; stop cleanly before this limit
     debug: bool = False  # internal debug flag
 
     # --- Validation of parameters ---
@@ -186,6 +190,15 @@ class DEALConfig:
 
         if isinstance(self.save_full_trajectory, str):
             self.save_full_trajectory = self.save_full_trajectory.lower()
+        if self.wall_time is not None:
+            if isinstance(self.wall_time, bool) or not isinstance(self.wall_time, Real):
+                raise TypeError(
+                    f"'wall_time' must be a number of seconds or None, got {type(self.wall_time)}."
+                )
+            if self.wall_time <= 0:
+                raise ValueError(f"'wall_time' must be > 0, got {self.wall_time}.")
+            self.wall_time = float(self.wall_time)
+
         if self.save_full_trajectory not in (False, True, "final"):
             raise ValueError(
                 "'save_full_trajectory' must be false, true or \"final\", "
