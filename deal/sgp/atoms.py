@@ -98,6 +98,9 @@ class SGPAtoms(Atoms):
 
     @property
     def stress(self):
+        results = getattr(self.calc, "results", None) or {}
+        if results.get("stress") is None:  # e.g. force-only training data
+            return None
         return self.get_stress()
 
     @stress.setter
@@ -170,7 +173,10 @@ class SGPAtoms(Atoms):
         if "results" in dct:
             results = dct.pop("results")
             results["forces"] = np.array(results["forces"])
-            results["stress"] = np.array(results["stress"])
+            if results.get("stress") is None:
+                results.pop("stress", None)
+            else:
+                results["stress"] = np.array(results["stress"])
         else:
             results = None
 
